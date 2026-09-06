@@ -34,8 +34,11 @@ export function computeCycleLabel(startDate: Date, endDate: Date): string {
     return MONTH_NAMES_FULL[top[0]];
   }
 
-  const monthsInOrder = entries.map(([m]) => m).sort((a, b) => a - b);
-  return monthsInOrder.map((m) => MONTH_NAMES_FULL[m]).join(" - ");
+  // `entries` ya está en orden cronológico de aparición (Map conserva el
+  // orden de inserción, y el while de arriba recorre día a día desde
+  // startDate): un sort numérico por índice de mes rompería ciclos que
+  // cruzan fin de año (ej. Diciembre -> Enero se leería "Enero - Diciembre").
+  return entries.map(([m]) => MONTH_NAMES_FULL[m]).join(" - ");
 }
 
 export function daysUntil(dateStr: string | null, now: Date = new Date()): number | null {

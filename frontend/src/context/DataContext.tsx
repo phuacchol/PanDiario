@@ -340,10 +340,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       });
 
       if ((origin === "vital" || origin === "secundario") && category) {
+        // Sin clamp a 0: un gasto que agota el cupo debe poder dejarlo en
+        // negativo (señal real de sobregiro) para que revertir el mismo
+        // efecto -al editar o eliminar la transacción- siempre devuelva el
+        // cupo exacto anterior, sin importar el orden de las operaciones.
         setBudgetCategories((prev) =>
           prev.map((c) => {
             if (c.type !== origin || c.name !== category) return c;
-            const nextAmount = Math.max(0, c.amount + delta);
+            const nextAmount = c.amount + delta;
             const db2 = getDb();
             db2.then((db) => db?.runAsync(`UPDATE budget_categories SET amount = ? WHERE id = ?`, [nextAmount, c.id]).catch(() => {}));
             return { ...c, amount: nextAmount };

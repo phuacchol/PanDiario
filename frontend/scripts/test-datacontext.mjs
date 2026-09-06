@@ -41,6 +41,12 @@ check(
   `obtenido: ${computeCycleLabel(new Date(2026, 8, 20), new Date(2026, 9, 5))}`
 );
 
+check(
+  'computeCycleLabel: ciclo que cruza fin de año respeta el orden cronológico ("Diciembre - Enero", no "Enero - Diciembre")',
+  computeCycleLabel(new Date(2026, 11, 25), new Date(2027, 0, 5)) === "Diciembre - Enero",
+  `obtenido: ${computeCycleLabel(new Date(2026, 11, 25), new Date(2027, 0, 5))}`
+);
+
 // ---------------------------------------------------------------------
 // daysUntil: cuenta regresiva "X días para el cierre".
 // ---------------------------------------------------------------------
