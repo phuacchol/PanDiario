@@ -26,7 +26,7 @@ export default function Home() {
     budgetCategories,
     transactions,
     notes,
-    listItems,
+    lists,
     addSavings,
     registerSalary,
     addBudgetCategory,
@@ -110,7 +110,7 @@ export default function Home() {
 
         {/* Tarjeta superior de Cartera + Ahorrar/Pagaron */}
         <View style={styles.walletRow}>
-          <View style={[styles.walletCard, { backgroundColor: "#0F172A" }]}>
+          <View style={[styles.walletCard, { backgroundColor: colors.heroBg }]}>
             <Text style={styles.walletAmount}>{formatMoney(carteraTotal, "PEN")}</Text>
             <View style={styles.walletSplitRow}>
               <View style={{ flex: 1 }}>
@@ -272,7 +272,7 @@ export default function Home() {
         cycle={detailCycle}
         transactions={transactions}
         notes={notes}
-        listItems={listItems}
+        lists={lists}
         onClose={() => setDetailCycle(null)}
       />
 
@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
 
   walletRow: { flexDirection: "row", gap: SPACING.sm },
   walletCard: { flex: 1, borderRadius: RADIUS.lg, padding: SPACING.lg, gap: SPACING.sm, justifyContent: "space-between" },
-  walletAmount: { fontFamily: FONTS.black, fontSize: FONT_SIZE["3xl"], color: "#4ADE80" },
+  walletAmount: { fontFamily: FONTS.black, fontSize: FONT_SIZE["3xl"], color: "#4EE3A5" },
   walletSplitRow: { flexDirection: "row" },
   walletSplitLabel: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, color: "rgba(255,255,255,0.7)" },
   walletSplitValue: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base, color: "#FFFFFF" },

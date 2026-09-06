@@ -54,7 +54,7 @@ export default function TabsLayout() {
           }}
           style={({ pressed }) => [styles.fab, { transform: [{ scale: pressed ? 0.94 : 1 }] }]}
         >
-          <LinearGradient colors={isDark ? ["#3B82F6", "#1D4ED8"] : ["#5B8DEF", "#2563EB"]} style={styles.fabInner}>
+          <LinearGradient colors={isDark ? ["#8B9AE6", "#6C7FD8"] : ["#8B9AE6", "#6C7FD8"]} style={styles.fabInner}>
             <Feather name="mic" size={26} color="#FFFFFF" />
           </LinearGradient>
         </Pressable>
@@ -69,7 +69,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    shadowColor: "#2563EB",
+    shadowColor: "#6C7FD8",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.45,
     shadowRadius: 12,

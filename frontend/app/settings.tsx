@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { Card, Button, Field } from "@/src/components/ui";
+import { Card, Button, Field, ChipRow } from "@/src/components/ui";
 import { Mascot } from "@/src/components/Mascot";
 import { useAuth } from "@/src/context/AuthContext";
 import { useTheme } from "@/src/theme/ThemeContext";
@@ -12,6 +12,7 @@ import { getDb } from "@/src/utils/localDb";
 import { overlayBubble } from "@/src/native/overlayBubble";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 import { CURRENCIES, WORLD_CURRENCIES } from "@/src/utils/format";
+import { LEAD_TIME_OPTIONS, DEFAULT_LEAD_MINUTES_KEY } from "@/src/constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const CUSTOM_CURRENCIES_KEY = "@pandiario_custom_currency_list";
@@ -27,6 +28,7 @@ export default function Settings() {
   const [pickerSearch, setPickerSearch] = useState("");
 
   const [visibleCurrencies, setVisibleCurrencies] = useState(CURRENCIES);
+  const [defaultLeadMinutes, setDefaultLeadMinutes] = useState("15");
 
   const [bubbleEnabled, setBubbleEnabled] = useState(false);
   const [bubbleAvailable] = useState(overlayBubble.isAvailable());
@@ -45,6 +47,9 @@ export default function Settings() {
     try {
       const storedCur = await AsyncStorage.getItem(CUSTOM_CURRENCIES_KEY);
       if (storedCur) setVisibleCurrencies(JSON.parse(storedCur));
+
+      const storedLead = await AsyncStorage.getItem(DEFAULT_LEAD_MINUTES_KEY);
+      if (storedLead) setDefaultLeadMinutes(storedLead);
     } catch {}
 
     if (overlayBubble.isAvailable()) {
@@ -95,6 +100,13 @@ export default function Settings() {
         },
       },
     ]);
+  };
+
+  const saveDefaultLead = async (key: string) => {
+    setDefaultLeadMinutes(key);
+    try {
+      await AsyncStorage.setItem(DEFAULT_LEAD_MINUTES_KEY, key);
+    } catch {}
   };
 
   const toggleTheme = (val: boolean) => {
@@ -216,6 +228,33 @@ export default function Settings() {
               </View>
               <Text style={[styles.currencyLabel, { color: colors.brand, fontFamily: FONTS.bold }]}>Más monedas del mundo</Text>
             </Pressable>
+          </Card>
+        </View>
+
+        {/* Categorías */}
+        <View>
+          <Text style={[styles.section, { color: colors.onSurface }]}>Organización</Text>
+          <Pressable onPress={() => router.push("/categories")} testID="open-categories">
+            <Card>
+              <View style={styles.switchRow}>
+                <View style={styles.switchLeft}>
+                  <Feather name="tag" size={20} color={colors.brand} />
+                  <Text style={[styles.switchLabel, { color: colors.onSurface }]}>Categorías</Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={colors.onSurfaceTertiary} />
+              </View>
+            </Card>
+          </Pressable>
+        </View>
+
+        {/* Notificaciones */}
+        <View>
+          <Text style={[styles.section, { color: colors.onSurface }]}>Notificaciones</Text>
+          <Card style={{ gap: SPACING.sm }}>
+            <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm }}>
+              Anticipación por defecto para recordatorios y listas programadas
+            </Text>
+            <ChipRow options={LEAD_TIME_OPTIONS.map((o) => ({ key: o.key, label: o.label }))} value={defaultLeadMinutes} onChange={saveDefaultLead} testID="settings-lead-chips" />
           </Card>
         </View>
 

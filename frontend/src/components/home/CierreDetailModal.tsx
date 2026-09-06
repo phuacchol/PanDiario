@@ -5,7 +5,7 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { Segmented } from "@/src/components/ui";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 import { formatMoney, formatLocalDate, formatLocalTime } from "@/src/utils/format";
-import type { Cycle, Transaction, Note, ListItem } from "@/src/context/DataContext";
+import type { Cycle, Transaction, Note, ListRecord } from "@/src/context/DataContext";
 
 type DetailTab = "ingresos" | "gastos" | "notas" | "listas";
 
@@ -16,14 +16,14 @@ export function CierreDetailModal({
   cycle,
   transactions,
   notes,
-  listItems,
+  lists,
   onClose,
 }: {
   visible: boolean;
   cycle: Cycle | null;
   transactions: Transaction[];
   notes: Note[];
-  listItems: ListItem[];
+  lists: ListRecord[];
   onClose: () => void;
 }) {
   const { colors } = useTheme();
@@ -33,8 +33,11 @@ export function CierreDetailModal({
 
   const ingresos = transactions.filter((t) => t.cycle_id === cycle.id && t.kind === "ingreso");
   const gastos = transactions.filter((t) => t.cycle_id === cycle.id && t.kind === "gasto");
-  const cycleNotes = notes.filter((n) => n.cycle_id === cycle.id);
-  const cycleList = listItems.filter((i) => i.cycle_id === cycle.id);
+  // Solo se archivan las notas/listas ya completadas o vencidas de ese
+  // periodo: las activas permanecen visibles en sus módulos (Nota/Lista) y
+  // nunca desaparecen de ahí al cerrarse un ciclo.
+  const cycleNotes = notes.filter((n) => n.cycle_id === cycle.id && n.done);
+  const cycleLists = lists.filter((l) => l.cycle_id === cycle.id && l.status === "done");
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -117,14 +120,14 @@ export function CierreDetailModal({
 
             {tab === "listas" ? (
               <FlatList
-                data={cycleList}
+                data={cycleLists}
                 keyExtractor={(i) => i.id}
-                ListEmptyComponent={<EmptyRow colors={colors} text="Sin ítems de lista en este cierre." />}
+                ListEmptyComponent={<EmptyRow colors={colors} text="Sin listas finalizadas en este cierre." />}
                 contentContainerStyle={{ gap: SPACING.sm }}
                 renderItem={({ item }) => (
                   <View style={[styles.row, { backgroundColor: colors.surfaceSecondary }]}>
-                    <Feather name={item.done ? "check-circle" : "circle"} size={16} color={item.done ? colors.success : colors.onSurfaceTertiary} />
-                    <Text style={[styles.rowTitle, { color: colors.onSurface, flex: 1, marginLeft: SPACING.sm }]}>{item.text}</Text>
+                    <Feather name="check-circle" size={16} color={colors.success} />
+                    <Text style={[styles.rowTitle, { color: colors.onSurface, flex: 1, marginLeft: SPACING.sm }]}>{item.title}</Text>
                   </View>
                 )}
               />

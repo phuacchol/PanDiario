@@ -8,6 +8,7 @@ export { computeCycleLabel, daysUntil };
 export type BudgetType = "vital" | "secundario";
 export type Method = "efectivo" | "transferencia";
 export type TxKind = "ingreso" | "gasto";
+export type Origin = "cuenta" | "vital" | "secundario" | "caja_chica" | "ahorro";
 
 export type Wallet = {
   carteraEfectivo: number;
@@ -33,6 +34,7 @@ export type Transaction = {
   amount: number;
   method: Method | null;
   category: string | null;
+  origin: Origin;
   note: string | null;
   created_at: string;
   cycle_id: string;
@@ -52,7 +54,9 @@ export type Cycle = {
 
 export type Note = {
   id: string;
+  subject: string;
   text: string;
+  pinned: boolean;
   is_reminder: boolean;
   remind_at: string | null;
   lead_minutes: number;
@@ -62,12 +66,26 @@ export type Note = {
   cycle_id: string | null;
 };
 
-export type ListItem = {
+export type ListRecord = {
   id: string;
-  text: string;
-  done: boolean;
+  title: string;
+  category: string | null;
+  is_programmed: boolean;
+  scheduled_at: string | null;
+  lead_minutes: number;
+  notification_id: string | null;
+  status: "active" | "done";
   created_at: string;
   cycle_id: string | null;
+};
+
+export type ListEntry = {
+  id: string;
+  list_id: string;
+  text: string;
+  done: boolean;
+  extra: boolean;
+  created_at: string;
 };
 
 function newId(prefix: string): string {
@@ -95,12 +113,17 @@ type DataCtx = {
   budgetCategories: BudgetCategory[];
   transactions: Transaction[];
   notes: Note[];
-  listItems: ListItem[];
+  lists: ListRecord[];
+  listEntries: ListEntry[];
   loading: boolean;
   refresh: () => Promise<void>;
 
-  addIncome: (p: { amount: number; method: Method; category?: string; note?: string }) => Promise<void>;
-  addExpense: (p: { amount: number; method: Method; category?: string; note?: string }) => Promise<void>;
+  addIncome: (p: { amount: number; method: Method; category?: string; note?: string; createdAt?: string }) => Promise<void>;
+  addExpense: (p: { amount: number; method: Method; category?: string; origin?: Origin; note?: string; createdAt?: string }) => Promise<void>;
+  updateTransaction: (
+    id: string,
+    patch: { amount?: number; method?: Method; category?: string; origin?: Origin; note?: string; createdAt?: string }
+  ) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
 
   addSavings: (amount: number) => Promise<void>;
@@ -114,15 +137,25 @@ type DataCtx = {
 
   addBudgetCategory: (p: { type: BudgetType; name: string; amount: number }) => Promise<void>;
   updateBudgetCategoryAmount: (id: string, amount: number) => Promise<void>;
+  updateBudgetCategoryName: (id: string, name: string) => Promise<void>;
   deleteBudgetCategory: (id: string) => Promise<void>;
 
-  addNote: (p: { text: string; isReminder?: boolean; remindAt?: string | null; leadMinutes?: number }) => Promise<void>;
+  addNote: (p: { subject?: string; text: string; isReminder?: boolean; remindAt?: string | null; leadMinutes?: number }) => Promise<void>;
+  updateNote: (id: string, patch: { subject?: string; text?: string; remindAt?: string | null; leadMinutes?: number }) => Promise<void>;
   toggleNoteDone: (id: string) => Promise<void>;
+  toggleNotePin: (id: string) => Promise<void>;
   deleteNote: (id: string) => Promise<void>;
 
-  addListItem: (text: string) => Promise<void>;
-  toggleListItem: (id: string) => Promise<void>;
-  deleteListItem: (id: string) => Promise<void>;
+  addList: (p: { title: string; category?: string; isProgrammed?: boolean; scheduledAt?: string | null; leadMinutes?: number }) => Promise<string>;
+  updateList: (id: string, patch: { title?: string; category?: string }) => Promise<void>;
+  deleteList: (id: string) => Promise<void>;
+  addListEntry: (listId: string, text: string, extra?: boolean) => Promise<void>;
+  toggleListEntry: (id: string) => Promise<void>;
+  deleteListEntry: (id: string) => Promise<void>;
+  completeList: (
+    listId: string,
+    p: { amount: number; method: Method; origin: Origin; category?: string; note?: string }
+  ) => Promise<void>;
 
   deleteCycle: (id: string) => Promise<void>;
 };
@@ -149,6 +182,7 @@ function mapTx(row: any): Transaction {
     amount: Number(row.amount) || 0,
     method: row.method || null,
     category: row.category || null,
+    origin: (row.origin || "cuenta") as Origin,
     note: row.note || null,
     created_at: row.created_at,
     cycle_id: row.cycle_id,
@@ -158,7 +192,9 @@ function mapTx(row: any): Transaction {
 function mapNote(row: any): Note {
   return {
     id: row.id,
+    subject: row.subject || "",
     text: row.text,
+    pinned: !!row.pinned,
     is_reminder: !!row.is_reminder,
     remind_at: row.remind_at || null,
     lead_minutes: Number(row.lead_minutes) || 15,
@@ -169,13 +205,29 @@ function mapNote(row: any): Note {
   };
 }
 
-function mapListItem(row: any): ListItem {
+function mapList(row: any): ListRecord {
   return {
     id: row.id,
-    text: row.text,
-    done: !!row.done,
+    title: row.title,
+    category: row.category || null,
+    is_programmed: !!row.is_programmed,
+    scheduled_at: row.scheduled_at || null,
+    lead_minutes: Number(row.lead_minutes) || 15,
+    notification_id: row.notification_id || null,
+    status: row.status === "done" ? "done" : "active",
     created_at: row.created_at,
     cycle_id: row.cycle_id || null,
+  };
+}
+
+function mapListEntry(row: any): ListEntry {
+  return {
+    id: row.id,
+    list_id: row.list_id,
+    text: row.text,
+    done: !!row.done,
+    extra: !!row.extra,
+    created_at: row.created_at,
   };
 }
 
@@ -186,7 +238,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
-  const [listItems, setListItems] = useState<ListItem[]>([]);
+  const [lists, setLists] = useState<ListRecord[]>([]);
+  const [listEntries, setListEntries] = useState<ListEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Garantiza que exista la fila singleton de wallet y un ciclo abierto;
@@ -241,8 +294,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const noteRows = await db.getAllAsync<any>(`SELECT * FROM notes ORDER BY created_at DESC`).catch(() => []);
     setNotes((noteRows || []).map(mapNote));
 
-    const listRows = await db.getAllAsync<any>(`SELECT * FROM list_items ORDER BY created_at DESC`).catch(() => []);
-    setListItems((listRows || []).map(mapListItem));
+    const listRows = await db.getAllAsync<any>(`SELECT * FROM lists ORDER BY created_at DESC`).catch(() => []);
+    setLists((listRows || []).map(mapList));
+
+    const entryRows = await db.getAllAsync<any>(`SELECT * FROM list_entries ORDER BY created_at ASC`).catch(() => []);
+    setListEntries((entryRows || []).map(mapListEntry));
 
     setLoading(false);
   }, [ensureBootstrap]);
@@ -260,62 +316,123 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     ).catch(() => {});
   }, []);
 
-  const addIncome = useCallback(
-    async (p: { amount: number; method: Method; category?: string; note?: string }) => {
-      const amount = Number(p.amount) || 0;
-      if (amount <= 0 || !openCycleId) return;
-      const now = todayISO();
-      const id = newId("tx");
+  // Aplica el efecto de un gasto/ingreso sobre Cartera/Caja Chica/Ahorro y,
+  // si el origen es un presupuesto, sobre el cupo de esa categoría. `sign`
+  // +1 para aplicar el movimiento, -1 para revertirlo (edición/eliminación).
+  const applyTxEffect = useCallback(
+    (kind: TxKind, amount: number, method: Method, origin: Origin, category: string | null, sign: 1 | -1) => {
+      const txSign = kind === "ingreso" ? 1 : -1;
+      const delta = sign * txSign * amount;
 
       setWallet((prev) => {
-        const next = { ...prev };
-        if (p.method === "efectivo") next.carteraEfectivo += amount;
-        else next.carteraDigital += amount;
+        let next = { ...prev };
+        if (origin === "caja_chica") {
+          next.cajaChica += delta;
+        } else if (origin === "ahorro") {
+          next.ahorro += delta;
+        } else {
+          // 'cuenta', 'vital' y 'secundario' siempre mueven la Cuenta Actual.
+          if (method === "efectivo") next.carteraEfectivo += delta;
+          else next.carteraDigital += delta;
+        }
         persistWallet(next);
         return next;
       });
 
-      const newTx: Transaction = { id, kind: "ingreso", amount, method: p.method, category: p.category || "Otros", note: p.note || null, created_at: now, cycle_id: openCycleId };
-      setTransactions((prev) => [newTx, ...prev]);
+      if ((origin === "vital" || origin === "secundario") && category) {
+        setBudgetCategories((prev) =>
+          prev.map((c) => {
+            if (c.type !== origin || c.name !== category) return c;
+            const nextAmount = Math.max(0, c.amount + delta);
+            const db2 = getDb();
+            db2.then((db) => db?.runAsync(`UPDATE budget_categories SET amount = ? WHERE id = ?`, [nextAmount, c.id]).catch(() => {}));
+            return { ...c, amount: nextAmount };
+          })
+        );
+      }
+    },
+    [persistWallet]
+  );
+
+  const addIncome = useCallback(
+    async (p: { amount: number; method: Method; category?: string; note?: string; createdAt?: string }) => {
+      const amount = Number(p.amount) || 0;
+      if (amount <= 0 || !openCycleId) return;
+      const now = p.createdAt || todayISO();
+      const id = newId("tx");
+      const category = p.category || "Otros";
+
+      applyTxEffect("ingreso", amount, p.method, "cuenta", null, 1);
+
+      const newTx: Transaction = { id, kind: "ingreso", amount, method: p.method, category, origin: "cuenta", note: p.note || null, created_at: now, cycle_id: openCycleId };
+      setTransactions((prev) => [newTx, ...prev].sort((a, b) => b.created_at.localeCompare(a.created_at)));
 
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO transactions (id, kind, amount, method, category, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, ?, ?)`,
-          [id, amount, p.method, p.category || "Otros", p.note || null, now, openCycleId]
+          `INSERT INTO transactions (id, kind, amount, method, category, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, 'cuenta', ?, ?, ?)`,
+          [id, amount, p.method, category, p.note || null, now, openCycleId]
         ).catch(() => {});
       }
     },
-    [openCycleId, persistWallet]
+    [openCycleId, applyTxEffect]
   );
 
   const addExpense = useCallback(
-    async (p: { amount: number; method: Method; category?: string; note?: string }) => {
+    async (p: { amount: number; method: Method; category?: string; origin?: Origin; note?: string; createdAt?: string }) => {
       const amount = Number(p.amount) || 0;
       if (amount <= 0 || !openCycleId) return;
-      const now = todayISO();
+      const now = p.createdAt || todayISO();
       const id = newId("tx");
+      const category = p.category || "Otros";
+      const origin = p.origin || "cuenta";
 
-      setWallet((prev) => {
-        const next = { ...prev };
-        if (p.method === "efectivo") next.carteraEfectivo -= amount;
-        else next.carteraDigital -= amount;
-        persistWallet(next);
-        return next;
-      });
+      applyTxEffect("gasto", amount, p.method, origin, category, 1);
 
-      const newTx: Transaction = { id, kind: "gasto", amount, method: p.method, category: p.category || "Otros", note: p.note || null, created_at: now, cycle_id: openCycleId };
-      setTransactions((prev) => [newTx, ...prev]);
+      const newTx: Transaction = { id, kind: "gasto", amount, method: p.method, category, origin, note: p.note || null, created_at: now, cycle_id: openCycleId };
+      setTransactions((prev) => [newTx, ...prev].sort((a, b) => b.created_at.localeCompare(a.created_at)));
 
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO transactions (id, kind, amount, method, category, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?)`,
-          [id, amount, p.method, p.category || "Otros", p.note || null, now, openCycleId]
+          `INSERT INTO transactions (id, kind, amount, method, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?)`,
+          [id, amount, p.method, category, origin, p.note || null, now, openCycleId]
         ).catch(() => {});
       }
     },
-    [openCycleId, persistWallet]
+    [openCycleId, applyTxEffect]
+  );
+
+  const updateTransaction = useCallback(
+    async (id: string, patch: { amount?: number; method?: Method; category?: string; origin?: Origin; note?: string; createdAt?: string }) => {
+      const target = transactions.find((t) => t.id === id);
+      if (!target) return;
+
+      // Revierte el efecto anterior y aplica el nuevo: así el recálculo de
+      // saldos/cupos siempre queda consistente, sin importar qué campo cambió.
+      applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1);
+
+      const nextAmount = patch.amount !== undefined ? Number(patch.amount) || 0 : target.amount;
+      const nextMethod = patch.method || target.method || "efectivo";
+      const nextOrigin = patch.origin || target.origin;
+      const nextCategory = patch.category !== undefined ? patch.category : target.category;
+      const nextNote = patch.note !== undefined ? patch.note : target.note;
+      const nextCreatedAt = patch.createdAt || target.created_at;
+
+      applyTxEffect(target.kind, nextAmount, nextMethod, nextOrigin, nextCategory, 1);
+
+      const updated: Transaction = { ...target, amount: nextAmount, method: nextMethod, origin: nextOrigin, category: nextCategory, note: nextNote, created_at: nextCreatedAt };
+      setTransactions((prev) => prev.map((t) => (t.id === id ? updated : t)).sort((a, b) => b.created_at.localeCompare(a.created_at)));
+
+      const db = await getDb();
+      if (db) {
+        await db.runAsync(
+          `UPDATE transactions SET amount = ?, method = ?, category = ?, origin = ?, note = ?, created_at = ? WHERE id = ?`,
+          [nextAmount, nextMethod, nextCategory, nextOrigin, nextNote, nextCreatedAt, id]
+        ).catch(() => {});
+      }
+    },
+    [transactions, applyTxEffect]
   );
 
   const deleteTransaction = useCallback(
@@ -324,20 +441,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setTransactions((prev) => prev.filter((t) => t.id !== id));
 
       if (target) {
-        setWallet((prev) => {
-          const next = { ...prev };
-          const sign = target.kind === "ingreso" ? -1 : 1;
-          if (target.method === "efectivo") next.carteraEfectivo += sign * target.amount;
-          else next.carteraDigital += sign * target.amount;
-          persistWallet(next);
-          return next;
-        });
+        applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1);
       }
 
       const db = await getDb();
       if (db) await db.runAsync(`DELETE FROM transactions WHERE id = ?`, [id]).catch(() => {});
     },
-    [transactions, persistWallet]
+    [transactions, applyTxEffect]
   );
 
   const addSavings = useCallback(
@@ -447,6 +557,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (db) await db.runAsync(`UPDATE budget_categories SET amount = ? WHERE id = ?`, [amt, id]).catch(() => {});
   }, []);
 
+  const updateBudgetCategoryName = useCallback(async (id: string, name: string) => {
+    const clean = (name || "").trim();
+    if (!clean) return;
+    setBudgetCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name: clean } : c)));
+    const db = await getDb();
+    if (db) await db.runAsync(`UPDATE budget_categories SET name = ? WHERE id = ?`, [clean, id]).catch(() => {});
+  }, []);
+
   const deleteBudgetCategory = useCallback(async (id: string) => {
     setBudgetCategories((prev) => prev.filter((c) => c.id !== id));
     const db = await getDb();
@@ -454,22 +572,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addNote = useCallback(
-    async (p: { text: string; isReminder?: boolean; remindAt?: string | null; leadMinutes?: number }) => {
+    async (p: { subject?: string; text: string; isReminder?: boolean; remindAt?: string | null; leadMinutes?: number }) => {
       const text = (p.text || "").trim();
       if (!text) return;
       const id = newId("note");
       const now = todayISO();
+      const subject = (p.subject || "").trim();
       const isReminder = !!p.isReminder && !!p.remindAt;
       const leadMinutes = p.leadMinutes ?? 15;
 
       let notificationId: string | null = null;
       if (isReminder && p.remindAt) {
-        notificationId = await scheduleReminder({ id, text, remindAt: p.remindAt, leadMinutes });
+        notificationId = await scheduleReminder({ id, text: subject || text, remindAt: p.remindAt, leadMinutes });
       }
 
       const newNote: Note = {
         id,
+        subject,
         text,
+        pinned: false,
         is_reminder: isReminder,
         remind_at: isReminder ? p.remindAt || null : null,
         lead_minutes: leadMinutes,
@@ -483,13 +604,44 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO notes (id, text, is_reminder, remind_at, lead_minutes, notification_id, done, created_at, cycle_id)
-           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-          [id, text, isReminder ? 1 : 0, newNote.remind_at, leadMinutes, notificationId, now, openCycleId]
+          `INSERT INTO notes (id, subject, text, pinned, is_reminder, remind_at, lead_minutes, notification_id, done, created_at, cycle_id)
+           VALUES (?, ?, ?, 0, ?, ?, ?, ?, 0, ?, ?)`,
+          [id, subject, text, isReminder ? 1 : 0, newNote.remind_at, leadMinutes, notificationId, now, openCycleId]
         ).catch(() => {});
       }
     },
     [openCycleId]
+  );
+
+  const updateNote = useCallback(
+    async (id: string, patch: { subject?: string; text?: string; remindAt?: string | null; leadMinutes?: number }) => {
+      const target = notes.find((n) => n.id === id);
+      if (!target) return;
+
+      const nextSubject = patch.subject !== undefined ? patch.subject : target.subject;
+      const nextText = patch.text !== undefined ? patch.text : target.text;
+      const nextRemindAt = patch.remindAt !== undefined ? patch.remindAt : target.remind_at;
+      const nextLead = patch.leadMinutes !== undefined ? patch.leadMinutes : target.lead_minutes;
+
+      let notificationId = target.notification_id;
+      if (target.is_reminder && (patch.remindAt !== undefined || patch.leadMinutes !== undefined) && nextRemindAt) {
+        if (notificationId) cancelReminder(notificationId).catch(() => {});
+        notificationId = await scheduleReminder({ id, text: nextSubject || nextText, remindAt: nextRemindAt, leadMinutes: nextLead });
+      }
+
+      setNotes((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, subject: nextSubject, text: nextText, remind_at: nextRemindAt, lead_minutes: nextLead, notification_id: notificationId } : n))
+      );
+
+      const db = await getDb();
+      if (db) {
+        await db.runAsync(
+          `UPDATE notes SET subject = ?, text = ?, remind_at = ?, lead_minutes = ?, notification_id = ? WHERE id = ?`,
+          [nextSubject, nextText, nextRemindAt, nextLead, notificationId, id]
+        ).catch(() => {});
+      }
+    },
+    [notes]
   );
 
   const toggleNoteDone = useCallback(
@@ -506,6 +658,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [notes]
   );
 
+  const toggleNotePin = useCallback(
+    async (id: string) => {
+      const target = notes.find((n) => n.id === id);
+      const nextPinned = !target?.pinned;
+      setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, pinned: nextPinned } : n)));
+      const db = await getDb();
+      if (db) await db.runAsync(`UPDATE notes SET pinned = ? WHERE id = ?`, [nextPinned ? 1 : 0, id]).catch(() => {});
+    },
+    [notes]
+  );
+
   const deleteNote = useCallback(
     async (id: string) => {
       const target = notes.find((n) => n.id === id);
@@ -517,56 +680,129 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [notes]
   );
 
-  const addListItem = useCallback(
-    async (text: string) => {
-      const clean = (text || "").trim();
-      if (!clean) return;
-      const id = newId("item");
+  const addList = useCallback(
+    async (p: { title: string; category?: string; isProgrammed?: boolean; scheduledAt?: string | null; leadMinutes?: number }) => {
+      const title = (p.title || "").trim();
+      if (!title) return "";
+      const id = newId("list");
       const now = todayISO();
-      setListItems((prev) => [{ id, text: clean, done: false, created_at: now, cycle_id: openCycleId }, ...prev]);
+      const isProgrammed = !!p.isProgrammed && !!p.scheduledAt;
+      const leadMinutes = p.leadMinutes ?? 15;
+
+      let notificationId: string | null = null;
+      if (isProgrammed && p.scheduledAt) {
+        notificationId = await scheduleReminder({ id, text: `Lista: ${title}`, remindAt: p.scheduledAt, leadMinutes });
+      }
+
+      const newList: ListRecord = {
+        id,
+        title,
+        category: p.category || null,
+        is_programmed: isProgrammed,
+        scheduled_at: isProgrammed ? p.scheduledAt || null : null,
+        lead_minutes: leadMinutes,
+        notification_id: notificationId,
+        status: "active",
+        created_at: now,
+        cycle_id: openCycleId,
+      };
+      setLists((prev) => [newList, ...prev]);
+
       const db = await getDb();
       if (db) {
-        await db.runAsync(`INSERT INTO list_items (id, text, done, created_at, cycle_id) VALUES (?, ?, 0, ?, ?)`, [id, clean, now, openCycleId]).catch(() => {});
+        await db.runAsync(
+          `INSERT INTO lists (id, title, category, is_programmed, scheduled_at, lead_minutes, notification_id, status, created_at, cycle_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+          [id, title, newList.category, isProgrammed ? 1 : 0, newList.scheduled_at, leadMinutes, notificationId, now, openCycleId]
+        ).catch(() => {});
       }
+      return id;
     },
     [openCycleId]
   );
 
-  const toggleListItem = useCallback(
+  const updateList = useCallback(async (id: string, patch: { title?: string; category?: string }) => {
+    setLists((prev) => prev.map((l) => (l.id === id ? { ...l, title: patch.title ?? l.title, category: patch.category ?? l.category } : l)));
+    const db = await getDb();
+    if (db) {
+      await db.runAsync(`UPDATE lists SET title = COALESCE(?, title), category = COALESCE(?, category) WHERE id = ?`, [patch.title ?? null, patch.category ?? null, id]).catch(() => {});
+    }
+  }, []);
+
+  const deleteList = useCallback(
     async (id: string) => {
-      const target = listItems.find((i) => i.id === id);
-      const nextDone = !target?.done;
-      setListItems((prev) => prev.map((i) => (i.id === id ? { ...i, done: nextDone } : i)));
+      const target = lists.find((l) => l.id === id);
+      setLists((prev) => prev.filter((l) => l.id !== id));
+      setListEntries((prev) => prev.filter((e) => e.list_id !== id));
+      if (target?.notification_id) cancelReminder(target.notification_id).catch(() => {});
       const db = await getDb();
-      if (db) await db.runAsync(`UPDATE list_items SET done = ? WHERE id = ?`, [nextDone ? 1 : 0, id]).catch(() => {});
+      if (db) {
+        await db.withTransactionAsync(async () => {
+          await db.runAsync(`DELETE FROM lists WHERE id = ?`, [id]);
+          await db.runAsync(`DELETE FROM list_entries WHERE list_id = ?`, [id]);
+        }).catch(() => {});
+      }
     },
-    [listItems]
+    [lists]
   );
 
-  const deleteListItem = useCallback(async (id: string) => {
-    setListItems((prev) => prev.filter((i) => i.id !== id));
+  const addListEntry = useCallback(async (listId: string, text: string, extra: boolean = false) => {
+    const clean = (text || "").trim();
+    if (!clean) return;
+    const id = newId("entry");
+    const now = todayISO();
+    setListEntries((prev) => [...prev, { id, list_id: listId, text: clean, done: false, extra, created_at: now }]);
     const db = await getDb();
-    if (db) await db.runAsync(`DELETE FROM list_items WHERE id = ?`, [id]).catch(() => {});
+    if (db) {
+      await db.runAsync(`INSERT INTO list_entries (id, list_id, text, done, extra, created_at) VALUES (?, ?, ?, 0, ?, ?)`, [id, listId, clean, extra ? 1 : 0, now]).catch(() => {});
+    }
   }, []);
+
+  const toggleListEntry = useCallback(
+    async (id: string) => {
+      const target = listEntries.find((e) => e.id === id);
+      const nextDone = !target?.done;
+      setListEntries((prev) => prev.map((e) => (e.id === id ? { ...e, done: nextDone } : e)));
+      const db = await getDb();
+      if (db) await db.runAsync(`UPDATE list_entries SET done = ? WHERE id = ?`, [nextDone ? 1 : 0, id]).catch(() => {});
+    },
+    [listEntries]
+  );
+
+  const deleteListEntry = useCallback(async (id: string) => {
+    setListEntries((prev) => prev.filter((e) => e.id !== id));
+    const db = await getDb();
+    if (db) await db.runAsync(`DELETE FROM list_entries WHERE id = ?`, [id]).catch(() => {});
+  }, []);
+
+  // Cierra la compra desde el overlay flotante (o desde la app): genera el
+  // gasto "Lista de compras" con el origen elegido y marca la lista como
+  // finalizada (queda archivada, ya no aparece entre las listas activas).
+  const completeList = useCallback(
+    async (listId: string, p: { amount: number; method: Method; origin: Origin; category?: string; note?: string }) => {
+      await addExpense({ amount: p.amount, method: p.method, origin: p.origin, category: p.category || "Lista de compras", note: p.note });
+      setLists((prev) => prev.map((l) => (l.id === listId ? { ...l, status: "done" } : l)));
+      const db = await getDb();
+      if (db) await db.runAsync(`UPDATE lists SET status = 'done' WHERE id = ?`, [listId]).catch(() => {});
+    },
+    [addExpense]
+  );
 
   // Elimina un cierre archivado del Historial. Es una limpieza del registro
   // histórico: no recalcula ni revierte los saldos actuales de Cartera/Caja
-  // Chica/Ahorro, que ya avanzaron con ciclos posteriores.
+  // Chica/Ahorro (que ya avanzaron con ciclos posteriores) y nunca borra
+  // notas/listas -esas viven en sus propios módulos, no en el Historial-.
   const deleteCycle = useCallback(
     async (id: string) => {
       if (id === openCycleId) return;
       setCycles((prev) => prev.filter((c) => c.id !== id));
       setTransactions((prev) => prev.filter((t) => t.cycle_id !== id));
-      setNotes((prev) => prev.filter((n) => n.cycle_id !== id));
-      setListItems((prev) => prev.filter((i) => i.cycle_id !== id));
 
       const db = await getDb();
       if (db) {
         await db.withTransactionAsync(async () => {
           await db.runAsync(`DELETE FROM cycles WHERE id = ?`, [id]);
           await db.runAsync(`DELETE FROM transactions WHERE cycle_id = ?`, [id]);
-          await db.runAsync(`DELETE FROM notes WHERE cycle_id = ?`, [id]);
-          await db.runAsync(`DELETE FROM list_items WHERE cycle_id = ?`, [id]);
         }).catch(() => {});
       }
     },
@@ -582,23 +818,32 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         budgetCategories,
         transactions,
         notes,
-        listItems,
+        lists,
+        listEntries,
         loading,
         refresh,
         addIncome,
         addExpense,
+        updateTransaction,
         deleteTransaction,
         addSavings,
         registerSalary,
         addBudgetCategory,
         updateBudgetCategoryAmount,
+        updateBudgetCategoryName,
         deleteBudgetCategory,
         addNote,
+        updateNote,
         toggleNoteDone,
+        toggleNotePin,
         deleteNote,
-        addListItem,
-        toggleListItem,
-        deleteListItem,
+        addList,
+        updateList,
+        deleteList,
+        addListEntry,
+        toggleListEntry,
+        deleteListEntry,
+        completeList,
         deleteCycle,
       }}
     >
