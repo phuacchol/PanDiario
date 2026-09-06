@@ -1,5 +1,5 @@
 import { View, Pressable, StyleSheet, Platform } from "react-native";
-import { Tabs, useRouter, useSegments } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
@@ -15,18 +15,13 @@ export default function TabsLayout() {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const segments = useSegments();
-  const current = segments[segments.length - 1];
-  // Map current tab -> voice context for intent detection.
-  const ctxMap: Record<string, string> = { inventory: "inventory", sales: "sales", expenses: "expenses" };
-  const voiceContext = ctxMap[current] || "home";
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: "#F59E0B",
+          tabBarActiveTintColor: colors.brand,
           tabBarInactiveTintColor: "#94A3B8",
           tabBarStyle: {
             backgroundColor: colors.surfaceSecondary,
@@ -39,30 +34,27 @@ export default function TabsLayout() {
           tabBarLabelStyle: { fontFamily: FONTS.medium, fontSize: 11 },
         }}
       >
-        {/* Dashboard (Inicio) se alcanza desde la cabecera (logo/avatar o el
-            botón superior izquierdo), nunca desde la barra inferior: con 5
-            pestañas el micrófono flotante quedaba montado sobre "Ventas". */}
+        {/* Inicio se alcanza desde la cabecera (botón "home" de TopBar),
+            nunca desde la barra inferior: así ninguna de las 4 pestañas
+            queda iluminada mientras se está en la Pantalla de Inicio. */}
         <Tabs.Screen name="index" options={{ href: null }} />
-        <Tabs.Screen name="sales" options={{ title: "Ventas", tabBarIcon: (p) => <TabIcon name="shopping-cart" {...p} /> }} />
-        <Tabs.Screen name="inventory" options={{ title: "Inventario", tabBarIcon: (p) => <TabIcon name="box" {...p} /> }} />
-        <Tabs.Screen name="expenses" options={{ title: "Gastos", tabBarIcon: (p) => <TabIcon name="trending-down" {...p} /> }} />
-        <Tabs.Screen name="reports" options={{ title: "Reportes", tabBarIcon: (p) => <TabIcon name="pie-chart" {...p} /> }} />
+        <Tabs.Screen name="lista" options={{ title: "Lista", tabBarIcon: (p) => <TabIcon name="check-square" {...p} /> }} />
+        <Tabs.Screen name="ingreso" options={{ title: "Ingreso", tabBarIcon: (p) => <TabIcon name="arrow-down-circle" {...p} /> }} />
+        <Tabs.Screen name="gasto" options={{ title: "Gasto", tabBarIcon: (p) => <TabIcon name="arrow-up-circle" {...p} /> }} />
+        <Tabs.Screen name="nota" options={{ title: "Nota", tabBarIcon: (p) => <TabIcon name="edit-3" {...p} /> }} />
       </Tabs>
 
-      {/* Floating central mic FAB (dual: smart data entry + universal search) */}
+      {/* Botón central flotante de acción rápida / micrófono. */}
       <View pointerEvents="box-none" style={[styles.fabWrap, { bottom: insets.bottom + 24 }]}>
         <Pressable
           testID="voice-fab"
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-            router.push({ pathname: "/voice", params: { context: voiceContext } });
+            router.push("/voice");
           }}
           style={({ pressed }) => [styles.fab, { transform: [{ scale: pressed ? 0.94 : 1 }] }]}
         >
-          <LinearGradient
-            colors={isDark ? ["#F5A623", "#E07B00"] : ["#F0AB57", "#E89A3E"]}
-            style={styles.fabInner}
-          >
+          <LinearGradient colors={isDark ? ["#3B82F6", "#1D4ED8"] : ["#5B8DEF", "#2563EB"]} style={styles.fabInner}>
             <Feather name="mic" size={26} color="#FFFFFF" />
           </LinearGradient>
         </Pressable>
@@ -77,7 +69,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    shadowColor: "#E89A3E",
+    shadowColor: "#2563EB",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.45,
     shadowRadius: 12,

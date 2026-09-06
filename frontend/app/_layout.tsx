@@ -1,7 +1,8 @@
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { LogBox, View } from "react-native";
+import * as Linking from "expo-linking";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -12,7 +13,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider, useTheme } from "@/src/theme/ThemeContext";
 import { AuthProvider, useAuth } from "@/src/context/AuthContext";
 import { DataProvider } from "@/src/context/DataContext";
-import { TaxonomyProvider } from "@/src/context/TaxonomyContext";
+import { configureNotificationsAsync } from "@/src/utils/notifications";
 
 // Disable logbox errors etc so that users can see the app
 LogBox.ignoreAllLogs(true);
@@ -20,13 +21,47 @@ LogBox.ignoreAllLogs(true);
 // Keep the native splash visible from cold start until icon fonts register.
 SplashScreen.preventAutoHideAsync();
 
+// Rutas destino de cada acceso rápido de la burbuja flotante nativa
+// (pandiario://quick/<accion>): ingreso/gasto/nota/lista abren su pestaña,
+// voice abre el modal de voz para hablar de inmediato.
+const QUICK_ACTION_ROUTES: Record<string, string> = {
+  ingreso: "/(tabs)/ingreso",
+  gasto: "/(tabs)/gasto",
+  nota: "/(tabs)/nota",
+  lista: "/(tabs)/lista",
+  voice: "/voice",
+};
+
+function useQuickActionDeepLinks() {
+  const router = useRouter();
+
+  useEffect(() => {
+    const handleUrl = (url: string | null) => {
+      if (!url) return;
+      const match = url.match(/quick\/([a-z]+)/i);
+      const action = match?.[1];
+      const route = action ? QUICK_ACTION_ROUTES[action] : undefined;
+      if (route) router.push(route as any);
+    };
+
+    Linking.getInitialURL().then(handleUrl).catch(() => {});
+    const sub = Linking.addEventListener("url", (e) => handleUrl(e.url));
+    return () => sub.remove();
+  }, [router]);
+}
+
 function RootNavigator() {
   const { isDark, colors, setMode } = useTheme();
   const { user } = useAuth();
+  useQuickActionDeepLinks();
 
   useEffect(() => {
     if (user?.theme === "dark" || user?.theme === "light") setMode(user.theme);
   }, [user?.theme, setMode]);
+
+  useEffect(() => {
+    configureNotificationsAsync();
+  }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
@@ -40,8 +75,6 @@ function RootNavigator() {
         <Stack.Screen name="index" options={{ contentStyle: { backgroundColor: "#8FA7D6" } }} />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="product-form" options={{ presentation: "modal" }} />
-        <Stack.Screen name="category-manager" options={{ presentation: "modal" }} />
         <Stack.Screen
           name="voice"
           options={{
@@ -80,9 +113,7 @@ export default function RootLayout() {
           <ThemeProvider>
             <AuthProvider>
               <DataProvider>
-                <TaxonomyProvider>
-                  <RootNavigator />
-                </TaxonomyProvider>
+                <RootNavigator />
               </DataProvider>
             </AuthProvider>
           </ThemeProvider>

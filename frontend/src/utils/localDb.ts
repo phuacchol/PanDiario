@@ -41,137 +41,89 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         synced INTEGER DEFAULT 1
       );
 
-      CREATE TABLE IF NOT EXISTS products (
+      -- Cartera: saldo activo del ciclo de sueldo en curso.
+      CREATE TABLE IF NOT EXISTS wallet (
         id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        category TEXT NOT NULL,
-        subcategory TEXT,
-        stock REAL DEFAULT 0,
-        min_stock REAL DEFAULT 0,
-        cost REAL DEFAULT 0,
-        margin REAL DEFAULT 0,
-        price REAL DEFAULT 0,
-        price_pending INTEGER DEFAULT 0,
-        note TEXT,
-        updated_at TEXT,
-        is_perishable INTEGER DEFAULT 0,
-        synced INTEGER DEFAULT 1
+        cartera_efectivo REAL DEFAULT 0,
+        cartera_digital REAL DEFAULT 0,
+        caja_chica REAL DEFAULT 0,
+        ahorro REAL DEFAULT 0,
+        last_salary REAL DEFAULT 0,
+        cycle_start TEXT,
+        next_payment_date TEXT
       );
 
-      CREATE TABLE IF NOT EXISTS product_batches (
-        id TEXT PRIMARY KEY,
-        product_id TEXT NOT NULL,
-        expiry_date TEXT,
-        batch_quantity REAL NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        synced INTEGER DEFAULT 0
-      );
-
-      CREATE TABLE IF NOT EXISTS expired_waste_records (
-        id TEXT PRIMARY KEY,
-        product_id TEXT,
-        product_name TEXT NOT NULL,
-        quantity_discarded REAL NOT NULL,
-        unit_cost REAL NOT NULL,
-        total_loss_cost REAL NOT NULL,
-        expiry_date TEXT,
-        timestamp TEXT NOT NULL,
-        note TEXT,
-        synced INTEGER DEFAULT 0
-      );
-
-      CREATE TABLE IF NOT EXISTS product_purchases (
-        id TEXT PRIMARY KEY,
-        product_id TEXT,
-        product_name TEXT NOT NULL,
-        qty REAL NOT NULL,
-        unit_cost REAL NOT NULL,
-        total_cost REAL NOT NULL,
-        note TEXT,
-        payment_method TEXT DEFAULT 'cash',
-        created_at TEXT NOT NULL,
-        synced INTEGER DEFAULT 1
-      );
-
-      CREATE TABLE IF NOT EXISTS sales (
-        id TEXT PRIMARY KEY,
-        items TEXT NOT NULL,
-        payments TEXT NOT NULL,
-        total REAL NOT NULL,
-        cost_total REAL NOT NULL,
-        profit REAL NOT NULL,
-        note TEXT,
-        created_at TEXT NOT NULL,
-        synced INTEGER DEFAULT 1
-      );
-
-      CREATE TABLE IF NOT EXISTS expenses (
+      -- Categorías del presupuesto: Vital (gastos primarios obligatorios) o
+      -- Secundario (prescindibles / estilo de vida), cada una con un monto
+      -- presupuestado editable.
+      CREATE TABLE IF NOT EXISTS budget_categories (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
-        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        amount REAL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      -- Ingresos y gastos. cycle_id los ata al ciclo de sueldo (abierto o ya
+      -- cerrado) al que pertenecen, para el detalle auditado del Historial.
+      CREATE TABLE IF NOT EXISTS transactions (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
         amount REAL NOT NULL,
-        method TEXT NOT NULL,
-        method_detail TEXT,
+        method TEXT,
+        category TEXT,
         note TEXT,
         created_at TEXT NOT NULL,
-        synced INTEGER DEFAULT 1
+        cycle_id TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS cash_shifts (
+      -- Historial de Cierres: cada fila es un ciclo de sueldo ya cerrado
+      -- (o el ciclo abierto en curso, con end_date NULL).
+      CREATE TABLE IF NOT EXISTS cycles (
         id TEXT PRIMARY KEY,
-        date TEXT NOT NULL,
-        initial_cash REAL DEFAULT 0,
-        actual_cash REAL,
-        difference REAL,
-        note TEXT,
-        status TEXT DEFAULT 'open',
-        opened_at TEXT NOT NULL,
-        closed_at TEXT,
-        synced INTEGER DEFAULT 1
+        start_date TEXT NOT NULL,
+        end_date TEXT,
+        label TEXT,
+        caja_chica_snapshot REAL DEFAULT 0,
+        ahorro_snapshot REAL DEFAULT 0,
+        resto_caja REAL DEFAULT 0,
+        salary_amount REAL DEFAULT 0,
+        created_at TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS taxonomy (
-        key TEXT PRIMARY KEY,
-        data TEXT NOT NULL
+      -- Notas y recordatorios (dictados por voz o manuales).
+      CREATE TABLE IF NOT EXISTS notes (
+        id TEXT PRIMARY KEY,
+        text TEXT NOT NULL,
+        is_reminder INTEGER DEFAULT 0,
+        remind_at TEXT,
+        lead_minutes INTEGER DEFAULT 15,
+        notification_id TEXT,
+        done INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        cycle_id TEXT
       );
 
-      CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
-      CREATE INDEX IF NOT EXISTS idx_sales_created_at ON sales(created_at);
-      CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON expenses(created_at);
-      CREATE INDEX IF NOT EXISTS idx_purchases_created_at ON product_purchases(created_at);
-      CREATE INDEX IF NOT EXISTS idx_shifts_date ON cash_shifts(date);
-      CREATE INDEX IF NOT EXISTS idx_batches_product ON product_batches(product_id);
-      CREATE INDEX IF NOT EXISTS idx_batches_expiry ON product_batches(expiry_date);
-      CREATE INDEX IF NOT EXISTS idx_waste_timestamp ON expired_waste_records(timestamp);
+      -- Pestaña LISTA: checklist simple (compras pendientes, tareas, etc).
+      CREATE TABLE IF NOT EXISTS list_items (
+        id TEXT PRIMARY KEY,
+        text TEXT NOT NULL,
+        done INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        cycle_id TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
+      CREATE INDEX IF NOT EXISTS idx_transactions_cycle ON transactions(cycle_id);
+      CREATE INDEX IF NOT EXISTS idx_cycles_start ON cycles(start_date);
+      CREATE INDEX IF NOT EXISTS idx_notes_remind_at ON notes(remind_at);
+      CREATE INDEX IF NOT EXISTS idx_list_items_created_at ON list_items(created_at);
     `);
 
-    // Migraciones seguras para bases de datos existentes
+    // Migraciones seguras para instalaciones previas del APK con un esquema
+    // más antiguo de esta misma app.
     try {
-      await db.runAsync(`ALTER TABLE expenses ADD COLUMN method_detail TEXT;`);
-    } catch {}
-    try {
-      await db.runAsync(`ALTER TABLE products ADD COLUMN updated_at TEXT;`);
-    } catch {}
-    try {
-      await db.runAsync(`ALTER TABLE products ADD COLUMN min_stock REAL DEFAULT 0;`);
-    } catch {}
-    try {
-      await db.runAsync(`ALTER TABLE products ADD COLUMN price_pending INTEGER DEFAULT 0;`);
-    } catch {}
-    try {
-      await db.runAsync(`ALTER TABLE cash_shifts ADD COLUMN opened_at TEXT;`);
-    } catch {}
-    try {
-      await db.runAsync(`ALTER TABLE cash_shifts ADD COLUMN closed_at TEXT;`);
-    } catch {}
-    try {
-      await db.runAsync(`ALTER TABLE products ADD COLUMN note TEXT;`);
-    } catch {}
-    try {
-      await db.runAsync(`ALTER TABLE product_purchases ADD COLUMN payment_method TEXT DEFAULT 'cash';`);
-    } catch {}
-    try {
-      await db.runAsync(`ALTER TABLE products ADD COLUMN is_perishable INTEGER DEFAULT 0;`);
+      await db.runAsync(`ALTER TABLE notes ADD COLUMN notification_id TEXT;`);
     } catch {}
   } catch (err) {
     console.warn("Fallo en execAsync de creación de tablas SQLite:", err);

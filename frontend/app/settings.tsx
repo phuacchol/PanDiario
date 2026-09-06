@@ -1,30 +1,20 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, Switch, Modal, TextInput, Alert } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { Card, Button, Field } from "@/src/components/ui";
 import { Mascot } from "@/src/components/Mascot";
-import { GuideAssistantModal } from "@/src/components/GuideAssistantModal";
-import { api } from "@/src/api/client";
 import { useAuth } from "@/src/context/AuthContext";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { getDb } from "@/src/utils/localDb";
+import { overlayBubble } from "@/src/native/overlayBubble";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 import { CURRENCIES, WORLD_CURRENCIES } from "@/src/utils/format";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const CUSTOM_CURRENCIES_KEY = "@pan_custom_currency_list";
-const DEFAULT_CHART_RANGE_KEY = "@pan_default_chart_range";
-
-const CHART_RANGES = [
-  { key: "today", label: "Diario (Hoy)" },
-  { key: "week", label: "Semanal" },
-  { key: "month", label: "Mensual" },
-  { key: "year", label: "Anual" },
-  { key: "all_years", label: "Años (Histórico)" },
-];
+const CUSTOM_CURRENCIES_KEY = "@pandiario_custom_currency_list";
 
 export default function Settings() {
   const { colors, isDark, setMode } = useTheme();
@@ -36,16 +26,11 @@ export default function Settings() {
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
 
-  // Lista personalizable de monedas visibles
   const [visibleCurrencies, setVisibleCurrencies] = useState(CURRENCIES);
 
-  // Período predeterminado de gráficos (Diario por defecto)
-  const [defaultChartRange, setDefaultChartRange] = useState("today");
+  const [bubbleEnabled, setBubbleEnabled] = useState(false);
+  const [bubbleAvailable] = useState(overlayBubble.isAvailable());
 
-  // Modal Guía Asistente
-  const [showGuide, setShowGuide] = useState(false);
-
-  // Modal Cambio de Contraseña
   const [changePasswordModal, setChangePasswordModal] = useState(false);
   const [newPass, setNewPass] = useState("");
   const [confirmPass, setConfirmPass] = useState("");
@@ -60,18 +45,12 @@ export default function Settings() {
     try {
       const storedCur = await AsyncStorage.getItem(CUSTOM_CURRENCIES_KEY);
       if (storedCur) setVisibleCurrencies(JSON.parse(storedCur));
-
-      const storedRange = await AsyncStorage.getItem(DEFAULT_CHART_RANGE_KEY);
-      if (storedRange) setDefaultChartRange(storedRange);
     } catch {}
-  };
 
-  const saveChartRange = async (rangeKey: string) => {
-    setDefaultChartRange(rangeKey);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    try {
-      await AsyncStorage.setItem(DEFAULT_CHART_RANGE_KEY, rangeKey);
-    } catch {}
+    if (overlayBubble.isAvailable()) {
+      const running = await overlayBubble.isRunning();
+      setBubbleEnabled(running);
+    }
   };
 
   const saveCurrenciesList = async (list: typeof CURRENCIES) => {
@@ -81,11 +60,8 @@ export default function Settings() {
     } catch {}
   };
 
-  const changeCurrency = async (code: string) => {
+  const changeCurrency = (code: string) => {
     updateUser({ currency: code });
-    try {
-      await api.patch("/settings", { currency: code });
-    } catch {}
   };
 
   const handleSelectFromWorld = (item: { code: string; label: string; symbol: string }) => {
@@ -107,31 +83,47 @@ export default function Settings() {
       return;
     }
 
-    Alert.alert(
-      "Eliminar moneda",
-      `¿Deseas quitar "${label}" de la lista rápida?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: () => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-            const updated = visibleCurrencies.filter((c) => c.code !== code);
-            saveCurrenciesList(updated);
-          },
+    Alert.alert("Eliminar moneda", `¿Deseas quitar "${label}" de la lista rápida?`, [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+          const updated = visibleCurrencies.filter((c) => c.code !== code);
+          saveCurrenciesList(updated);
         },
-      ]
-    );
+      },
+    ]);
   };
 
-  const toggleTheme = async (val: boolean) => {
+  const toggleTheme = (val: boolean) => {
     const theme = val ? "dark" : "light";
     setMode(theme);
     updateUser({ theme });
-    try {
-      await api.patch("/settings", { theme });
-    } catch {}
+  };
+
+  const toggleBubble = async (val: boolean) => {
+    if (!bubbleAvailable) return;
+    if (val) {
+      const hasPermission = await overlayBubble.hasPermission();
+      if (!hasPermission) {
+        Alert.alert(
+          "Permiso necesario",
+          "PanDiario necesita permiso para mostrar la burbuja sobre otras apps. Actívalo en la siguiente pantalla y vuelve a intentarlo.",
+          [
+            { text: "Cancelar", style: "cancel" },
+            { text: "Abrir ajustes", onPress: () => overlayBubble.requestPermission() },
+          ]
+        );
+        return;
+      }
+      overlayBubble.start();
+      setBubbleEnabled(true);
+    } else {
+      overlayBubble.stop();
+      setBubbleEnabled(false);
+    }
   };
 
   const handleSaveNewPassword = async () => {
@@ -148,14 +140,9 @@ export default function Settings() {
     setPassError("");
 
     try {
-      await api.patch("/settings/password", { password: newPass }).catch(() => null);
-
       const db = await getDb();
       if (db && user?.email) {
-        await db.runAsync(
-          `UPDATE users SET password = ?, synced = 0 WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))`,
-          [newPass, user.email]
-        ).catch(() => {});
+        await db.runAsync(`UPDATE users SET password = ? WHERE LOWER(TRIM(email)) = LOWER(TRIM(?))`, [newPass, user.email]).catch(() => {});
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -193,47 +180,6 @@ export default function Settings() {
           <Text style={[styles.email, { color: colors.onSurfaceTertiary }]}>{user?.email}</Text>
         </View>
 
-        {/* Guía Asistente */}
-        <View>
-          <Text style={[styles.section, { color: colors.onSurface }]}>Ayuda y Soporte</Text>
-          <Pressable onPress={() => setShowGuide(true)}>
-            <Card style={{ borderColor: colors.brand + "44", borderWidth: 1 }}>
-              <View style={styles.switchRow}>
-                <View style={styles.switchLeft}>
-                  <Feather name="help-circle" size={20} color={colors.brand} />
-                  <Text style={[styles.switchLabel, { color: colors.onSurface }]}>Aprende a usar la App (Guía Asistente)</Text>
-                </View>
-                <Feather name="chevron-right" size={20} color={colors.onSurfaceTertiary} />
-              </View>
-            </Card>
-          </Pressable>
-        </View>
-
-        {/* Período Predeterminado para Gráficos */}
-        <View>
-          <Text style={[styles.section, { color: colors.onSurface }]}>Período Predeterminado de Gráficos</Text>
-          <Card style={{ gap: SPACING.xs, padding: SPACING.sm }}>
-            {CHART_RANGES.map((cr) => {
-              const active = defaultChartRange === cr.key;
-              return (
-                <Pressable
-                  key={cr.key}
-                  onPress={() => saveChartRange(cr.key)}
-                  style={[styles.currencyRow, { backgroundColor: active ? colors.brandTertiary : "transparent" }]}
-                >
-                  <View style={[styles.currencySymbol, { backgroundColor: active ? colors.brand : colors.surfaceTertiary }]}>
-                    <Feather name="bar-chart-2" size={18} color={active ? colors.onBrand : colors.onSurface} />
-                  </View>
-                  <Text style={[styles.currencyLabel, { color: colors.onSurface, fontFamily: active ? FONTS.bold : FONTS.medium }]}>
-                    {cr.label}
-                  </Text>
-                  {active ? <Feather name="check-circle" size={20} color={colors.brand} /> : null}
-                </Pressable>
-              );
-            })}
-          </Card>
-        </View>
-
         {/* Monedas */}
         <View>
           <Text style={[styles.section, { color: colors.onSurface }]}>Moneda</Text>
@@ -241,15 +187,8 @@ export default function Settings() {
             {visibleCurrencies.map((c) => {
               const active = user?.currency === c.code;
               return (
-                <View
-                  key={c.code}
-                  style={[styles.currencyRow, { backgroundColor: active ? colors.brandTertiary : "transparent" }]}
-                >
-                  <Pressable
-                    onPress={() => changeCurrency(c.code)}
-                    style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: SPACING.md }}
-                    testID={`currency-${c.code}`}
-                  >
+                <View key={c.code} style={[styles.currencyRow, { backgroundColor: active ? colors.brandTertiary : "transparent" }]}>
+                  <Pressable onPress={() => changeCurrency(c.code)} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: SPACING.md }} testID={`currency-${c.code}`}>
                     <View style={[styles.currencySymbol, { backgroundColor: active ? colors.brand : colors.surfaceTertiary }]}>
                       <Text style={{ color: active ? colors.onBrand : colors.onSurface, fontFamily: FONTS.black, fontSize: FONT_SIZE.base }}>{c.symbol}</Text>
                     </View>
@@ -257,11 +196,7 @@ export default function Settings() {
                     {active ? <Feather name="check-circle" size={20} color={colors.brand} /> : null}
                   </Pressable>
 
-                  <Pressable
-                    onPress={() => handleDeleteCurrency(c.code, c.label)}
-                    hitSlop={8}
-                    style={styles.deleteBtn}
-                  >
+                  <Pressable onPress={() => handleDeleteCurrency(c.code, c.label)} hitSlop={8} style={styles.deleteBtn}>
                     <Feather name="trash-2" size={17} color={colors.onSurfaceTertiary} />
                   </Pressable>
                 </View>
@@ -269,7 +204,10 @@ export default function Settings() {
             })}
 
             <Pressable
-              onPress={() => { setPickerSearch(""); setShowPicker(true); }}
+              onPress={() => {
+                setPickerSearch("");
+                setShowPicker(true);
+              }}
               testID="currency-add"
               style={[styles.currencyRow, { borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.brand }]}
             >
@@ -281,20 +219,32 @@ export default function Settings() {
           </Card>
         </View>
 
-        {/* Categorías */}
+        {/* Burbuja flotante */}
         <View>
-          <Text style={[styles.section, { color: colors.onSurface }]}>Organización</Text>
-          <Pressable onPress={() => router.push("/category-manager")} testID="open-category-manager">
-            <Card>
-              <View style={styles.switchRow}>
-                <View style={styles.switchLeft}>
-                  <Feather name="grid" size={20} color={colors.brand} />
-                  <Text style={[styles.switchLabel, { color: colors.onSurface }]}>Categorías y subcategorías</Text>
+          <Text style={[styles.section, { color: colors.onSurface }]}>Burbuja flotante</Text>
+          <Card>
+            <View style={styles.switchRow}>
+              <View style={styles.switchLeft}>
+                <Feather name="disc" size={20} color={colors.brand} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.switchLabel, { color: colors.onSurface }]}>Acceso rápido fuera de la app</Text>
+                  {!bubbleAvailable ? (
+                    <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, marginTop: 2 }}>
+                      Disponible solo en Android (APK compilado)
+                    </Text>
+                  ) : null}
                 </View>
-                <Feather name="chevron-right" size={20} color={colors.onSurfaceTertiary} />
               </View>
-            </Card>
-          </Pressable>
+              <Switch
+                value={bubbleEnabled}
+                onValueChange={toggleBubble}
+                disabled={!bubbleAvailable}
+                trackColor={{ true: colors.brand, false: colors.borderStrong }}
+                thumbColor="#FFF"
+                testID="bubble-switch"
+              />
+            </View>
+          </Card>
         </View>
 
         {/* Modo Oscuro */}
@@ -317,7 +267,6 @@ export default function Settings() {
           </Card>
         </View>
 
-        {/* Botón Cambiar Contraseña */}
         <Button
           title="Cambiar contraseña"
           variant="secondary"
@@ -330,12 +279,10 @@ export default function Settings() {
           }}
         />
 
-        {/* Cerrar Sesión */}
         <Button title="Cerrar sesión" variant="outline" icon="log-out" onPress={onLogout} loading={saving} testID="logout-button" />
         <Text style={[styles.version, { color: colors.onSurfaceTertiary }]}>PanDiario · v1.0</Text>
       </ScrollView>
 
-      {/* Modal Cambiar Contraseña */}
       <Modal visible={changePasswordModal} transparent animationType="fade" onRequestClose={() => setChangePasswordModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: colors.surface }]}>
@@ -346,53 +293,23 @@ export default function Settings() {
               </Pressable>
             </View>
 
-            <Text style={{ fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, color: colors.onSurfaceTertiary }}>
-              Ingresa tu nueva clave de acceso directamente.
-            </Text>
+            <Text style={{ fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, color: colors.onSurfaceTertiary }}>Ingresa tu nueva clave de acceso directamente.</Text>
 
-            <Field
-              label="Nueva Contraseña"
-              placeholder="••••••••"
-              secureTextEntry
-              value={newPass}
-              onChangeText={setNewPass}
-            />
-
-            <Field
-              label="Confirmar Nueva Contraseña"
-              placeholder="••••••••"
-              secureTextEntry
-              value={confirmPass}
-              onChangeText={setConfirmPass}
-            />
+            <Field label="Nueva Contraseña" placeholder="••••••••" secureTextEntry value={newPass} onChangeText={setNewPass} />
+            <Field label="Confirmar Nueva Contraseña" placeholder="••••••••" secureTextEntry value={confirmPass} onChangeText={setConfirmPass} />
 
             {passError ? (
-              <Text style={{ fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, color: colors.error, textAlign: "center" }}>
-                {passError}
-              </Text>
+              <Text style={{ fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, color: colors.error, textAlign: "center" }}>{passError}</Text>
             ) : null}
 
             <View style={{ flexDirection: "row", gap: SPACING.md, marginTop: SPACING.xs }}>
-              <Button
-                title="Cancelar"
-                variant="secondary"
-                onPress={() => setChangePasswordModal(false)}
-                style={{ flex: 1 }}
-              />
-              <Button
-                title="Actualizar"
-                onPress={handleSaveNewPassword}
-                loading={passSaving}
-                style={{ flex: 1 }}
-              />
+              <Button title="Cancelar" variant="secondary" onPress={() => setChangePasswordModal(false)} style={{ flex: 1 }} />
+              <Button title="Actualizar" onPress={handleSaveNewPassword} loading={passSaving} style={{ flex: 1 }} />
             </View>
           </View>
         </View>
       </Modal>
 
-      <GuideAssistantModal visible={showGuide} onClose={() => setShowGuide(false)} />
-
-      {/* Modal Monedas */}
       <Modal visible={showPicker} animationType="slide" onRequestClose={() => setShowPicker(false)}>
         <View style={{ flex: 1, backgroundColor: colors.surface, paddingTop: insets.top }}>
           <View style={styles.pickerHeader}>
@@ -425,7 +342,9 @@ export default function Settings() {
                 <View style={[styles.currencySymbol, { backgroundColor: colors.surfaceTertiary }]}>
                   <Text style={{ color: colors.onSurface, fontFamily: FONTS.black, fontSize: FONT_SIZE.base }}>{c.symbol}</Text>
                 </View>
-                <Text style={[styles.currencyLabel, { color: colors.onSurface }]}>{c.label} · {c.code}</Text>
+                <Text style={[styles.currencyLabel, { color: colors.onSurface }]}>
+                  {c.label} · {c.code}
+                </Text>
                 {user?.currency === c.code ? <Feather name="check-circle" size={20} color={colors.brand} /> : null}
               </Pressable>
             ))}
@@ -448,7 +367,7 @@ const styles = StyleSheet.create({
   currencyLabel: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base },
   deleteBtn: { padding: SPACING.xs, marginLeft: SPACING.xs, borderRadius: RADIUS.sm },
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  switchLeft: { flexDirection: "row", alignItems: "center", gap: SPACING.md },
+  switchLeft: { flexDirection: "row", alignItems: "center", gap: SPACING.md, flex: 1 },
   switchLabel: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
   version: { fontFamily: FONTS.regular, fontSize: FONT_SIZE.sm, textAlign: "center", marginTop: SPACING.md },
   pickerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: SPACING.lg, paddingBottom: SPACING.md },

@@ -10,7 +10,9 @@ dist/
 web-build/
 expo-env.d.ts
 
-# Native
+# Native (generado por `expo prebuild`; el workflow de CI lo regenera con --clean)
+/android
+/ios
 .kotlin/
 *.orig.*
 *.jks

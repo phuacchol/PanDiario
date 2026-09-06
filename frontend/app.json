@@ -12,7 +12,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.phuacchol.pandiario",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Registra ventas y gastos hablando por voz"
+        "NSMicrophoneUsageDescription": "Registra ingresos, gastos y notas hablando por voz"
       }
     },
     "android": {
@@ -24,7 +24,11 @@
       "package": "com.phuacchol.pandiario",
       "permissions": [
         "RECORD_AUDIO",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "SYSTEM_ALERT_WINDOW",
+        "POST_NOTIFICATIONS",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_SPECIAL_USE"
       ]
     },
     "web": {
@@ -52,11 +56,13 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Registra ventas y gastos hablando por voz",
-          "speechRecognitionPermission": "Permite que Pan entienda tus órdenes de venta, gasto e inventario por voz",
+          "microphonePermission": "Registra ingresos, gastos y notas hablando por voz",
+          "speechRecognitionPermission": "Permite que Pan entienda tus ingresos, gastos y notas por voz",
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
         }
-      ]
+      ],
+      "expo-notifications",
+      "./plugins/withOverlayBubble.js"
     ],
     "experiments": {
       "typedRoutes": true

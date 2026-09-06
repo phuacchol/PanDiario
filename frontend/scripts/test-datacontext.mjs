@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-// Pruebas unitarias ligeras de la lógica pura de eliminación de ingresos de
-// stock (src/utils/purchaseHelpers.ts, usada por deletePurchase/loadPurchases
-// en DataContext.tsx). DataContext.tsx en sí es un .tsx que además importa
-// expo-sqlite/@react-native-community/netinfo (módulos nativos que exigen el
-// runtime de Expo), así que no puede probarse directamente con Node a secas
-// -por eso la lógica aritmética/de filtrado vive separada en su propio
-// archivo .ts, sin dependencias de React Native-.
-import { clampStockAfterDeletion, excludeDeletedPurchases } from "../src/utils/purchaseHelpers.ts";
+// Pruebas unitarias ligeras de la lógica pura de finanzas personales
+// (src/utils/financeHelpers.ts, usada por DataContext.tsx). DataContext.tsx
+// en sí es un .tsx que además importa expo-sqlite/expo-notifications
+// (módulos nativos que exigen el runtime de Expo), así que no puede
+// probarse directamente con Node a secas -por eso la lógica pura vive
+// separada en su propio archivo .ts, sin dependencias de React Native-.
+import { computeCycleLabel, daysUntil, splitSavingsFromWallet } from "../src/utils/financeHelpers.ts";
 
 let failures = 0;
 let total = 0;
@@ -23,55 +22,65 @@ function check(label, ok, details) {
 }
 
 // ---------------------------------------------------------------------
-// clampStockAfterDeletion: nunca deja el stock en negativo.
+// computeCycleLabel: nombre del ciclo en el Historial de Cierres.
 // ---------------------------------------------------------------------
 check(
-  "clampStockAfterDeletion(153, 20) === 133 (descuento normal)",
-  clampStockAfterDeletion(153, 20) === 133
+  'computeCycleLabel: ciclo íntegro dentro de un mes -> "Abril"',
+  computeCycleLabel(new Date(2026, 3, 1), new Date(2026, 3, 28)) === "Abril"
 );
+
 check(
-  "clampStockAfterDeletion(5, 20) === 0 (nunca negativo, aunque el ingreso exceda el stock actual)",
-  clampStockAfterDeletion(5, 20) === 0
+  'computeCycleLabel: ciclo con >=20 días en el mes de cierre -> ese mes',
+  computeCycleLabel(new Date(2026, 8, 25), new Date(2026, 9, 20)) === "Octubre",
+  `obtenido: ${computeCycleLabel(new Date(2026, 8, 25), new Date(2026, 9, 20))}`
 );
-check("clampStockAfterDeletion(0, 0) === 0", clampStockAfterDeletion(0, 0) === 0);
+
+check(
+  'computeCycleLabel: ciclo repartido sin que ningún mes llegue a 20 días -> nombre compuesto',
+  computeCycleLabel(new Date(2026, 8, 20), new Date(2026, 9, 5)) === "Septiembre - Octubre",
+  `obtenido: ${computeCycleLabel(new Date(2026, 8, 20), new Date(2026, 9, 5))}`
+);
 
 // ---------------------------------------------------------------------
-// excludeDeletedPurchases: reproduce el bug reportado — una lectura remota
-// en segundo plano (el backend no expone DELETE para /purchases) no debe
-// resucitar un ingreso ya borrado localmente, ni los totales (Capital
-// Invertido / Unidades Ingresadas) que se calculan a partir de esa lista.
+// daysUntil: cuenta regresiva "X días para el cierre".
 // ---------------------------------------------------------------------
 {
-  const remoteStale = [
-    { id: "p1", qty: 100, total_cost: 1000 },
-    { id: "p2", qty: 53, total_cost: 1073 }, // este es el que se "eliminó" localmente
-  ];
-  const deletedIds = new Set(["p2"]);
-  const result = excludeDeletedPurchases(remoteStale, deletedIds);
-
+  const now = new Date(2026, 0, 1);
   check(
-    "excludeDeletedPurchases filtra el ingreso ya eliminado de una respuesta remota obsoleta",
-    result.length === 1 && result[0].id === "p1",
-    `obtenido: ${JSON.stringify(result)}`
+    "daysUntil: 25 días exactos hacia adelante",
+    daysUntil("2026-01-26", now) === 25,
+    `obtenido: ${daysUntil("2026-01-26", now)}`
   );
-
-  const totalUnits = result.reduce((acc, p) => acc + p.qty, 0);
-  const totalAmount = result.reduce((acc, p) => acc + p.total_cost, 0);
-  check(
-    "los totales recalculados (Unidades Ingresadas / Capital Invertido) reflejan solo los registros vigentes, sin 'rebotar' a los valores previos",
-    totalUnits === 100 && totalAmount === 1000,
-    `obtenido: unidades=${totalUnits} monto=${totalAmount}`
-  );
+  check("daysUntil: null sin fecha", daysUntil(null, now) === null);
+  check("daysUntil: 0 el mismo día", daysUntil("2026-01-01", now) === 0);
 }
 
+// ---------------------------------------------------------------------
+// splitSavingsFromWallet: "Ahorrar" descuenta de Cartera (efectivo primero)
+// sin dejar saldos negativos ni ahorrar más de lo disponible.
+// ---------------------------------------------------------------------
 {
-  // Sin eliminaciones pendientes, la lista remota pasa intacta.
-  const remote = [{ id: "a", qty: 1 }, { id: "b", qty: 2 }];
-  const result = excludeDeletedPurchases(remote, new Set());
+  const r = splitSavingsFromWallet(50, 30, 100);
   check(
-    "excludeDeletedPurchases no descarta nada cuando no hay eliminaciones locales pendientes",
-    result.length === 2,
-    `obtenido: ${JSON.stringify(result)}`
+    "splitSavingsFromWallet: descuenta primero de efectivo y el resto de digital",
+    r.amount === 50 && r.carteraEfectivo === 0 && r.carteraDigital === 80,
+    `obtenido: ${JSON.stringify(r)}`
+  );
+}
+{
+  const r = splitSavingsFromWallet(200, 30, 20);
+  check(
+    "splitSavingsFromWallet: nunca ahorra más de lo disponible en Cartera",
+    r.amount === 50 && r.carteraEfectivo === 0 && r.carteraDigital === 0,
+    `obtenido: ${JSON.stringify(r)}`
+  );
+}
+{
+  const r = splitSavingsFromWallet(20, 100, 0);
+  check(
+    "splitSavingsFromWallet: monto cubierto solo con efectivo no toca digital",
+    r.amount === 20 && r.carteraEfectivo === 80 && r.carteraDigital === 0,
+    `obtenido: ${JSON.stringify(r)}`
   );
 }
 
@@ -79,4 +88,4 @@ if (failures > 0) {
   console.error(`\n${failures} de ${total} pruebas fallaron.`);
   process.exit(1);
 }
-console.log(`\n${total} pruebas de DataContext (eliminación de ingresos de stock) pasaron correctamente.`);
+console.log(`\n${total} pruebas de finanzas (DataContext) pasaron correctamente.`);
