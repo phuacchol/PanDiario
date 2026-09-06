@@ -135,7 +135,11 @@ export default function ListaScreen() {
             <Field label="Nombre" placeholder="Ej. Compras del súper" value={newTitle} onChangeText={setNewTitle} testID="lista-new-title" />
             <View style={{ gap: SPACING.xs }}>
               <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Categoría</Text>
-              <ChipRow options={categories.filter((c) => c !== "Todas").concat("Otros").map((c) => ({ key: c, label: c }))} value={newCategory} onChange={setNewCategory} />
+              <ChipRow
+                options={Array.from(new Set([...categories.filter((c) => c !== "Todas"), "Otros"])).map((c) => ({ key: c, label: c }))}
+                value={newCategory}
+                onChange={setNewCategory}
+              />
             </View>
 
             <Pressable style={styles.reminderToggle} onPress={() => setIsProgrammed((v) => !v)} testID="lista-programmed-toggle">
