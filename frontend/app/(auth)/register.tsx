@@ -62,7 +62,7 @@ export default function Register() {
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.surfaceSecondary }]}>
-          <Field label="Nombre del negocio" icon="briefcase" placeholder="Mi tienda" value={name} onChangeText={setName} testID="register-name-input" />
+          <Field label="Tu nombre" icon="user" placeholder="Nombre completo" value={name} onChangeText={setName} testID="register-name-input" />
           <Field
             label="Correo"
             icon="mail"

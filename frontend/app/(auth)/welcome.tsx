@@ -40,7 +40,8 @@ export default function Welcome() {
           { height: CURVE_HEIGHT, paddingBottom: insets.bottom + SPACING.xl },
         ]}
       >
-        <Text style={styles.tagline}>Bienvenido a tu rincón financiero dulce</Text>
+        <Text style={styles.title}>BIENVENIDO</Text>
+        <Text style={styles.subtitle}>a tu rincón dulce</Text>
 
         <View style={styles.actions}>
           <Pressable
@@ -76,13 +77,20 @@ const styles = StyleSheet.create({
     paddingTop: 110,
     justifyContent: "space-between",
   },
-  tagline: {
+  title: {
     fontFamily: FONTS.bold,
-    fontSize: FONT_SIZE.xl,
+    fontSize: FONT_SIZE["3xl"],
     fontWeight: "700",
     textAlign: "center",
     color: "#1E293B",
-    lineHeight: 28,
+    letterSpacing: 0.5,
+  },
+  subtitle: {
+    fontFamily: FONTS.medium,
+    fontSize: FONT_SIZE.lg,
+    textAlign: "center",
+    color: "#475569",
+    marginTop: SPACING.xs,
   },
   actions: { gap: SPACING.md },
   primaryBtn: {
