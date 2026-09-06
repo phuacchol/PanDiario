@@ -22,7 +22,7 @@ interface TaxonomyContextType {
   removeExpenseSubcategory: (catName: string, subName: string) => Promise<void>;
 }
 
-export const TAXONOMY_STORAGE_KEY = "@pan_custom_taxonomy";
+export const TAXONOMY_STORAGE_KEY = "@pandiario_custom_taxonomy";
 
 export const DEFAULT_INVENTORY_CATEGORIES: CategoryItem[] = [
   {

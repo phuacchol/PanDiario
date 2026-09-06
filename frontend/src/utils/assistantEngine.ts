@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export const ASSISTANT_MEMORY_KEY = "@pan_assistant_memory";
+export const ASSISTANT_MEMORY_KEY = "@pandiario_assistant_memory";
 
 export interface AssistantMemory {
   preferredPaymentMethod: "cash" | "transfer";

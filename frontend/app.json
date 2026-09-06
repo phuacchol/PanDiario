@@ -37,7 +37,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/panconmiel/pan-logo-letras.png",
+          "image": "./assets/images/pandiario/pan-logo-letras.png",
           "imageWidth": 220,
           "resizeMode": "contain",
           "backgroundColor": "#8FA7D6"
@@ -62,8 +62,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {},
-      "backendUrl": "https://pan-administrador.onrender.com"
+      "router": {}
     }
   }
 }

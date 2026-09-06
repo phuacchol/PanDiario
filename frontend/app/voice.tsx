@@ -1459,7 +1459,7 @@ export default function Voice() {
         <View style={[styles.grabber, { backgroundColor: colors.borderStrong }]} />
         <View style={styles.sheetHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>Asistente PanCon Miel</Text>
+            <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>Asistente PanDiario</Text>
             <Text style={{ fontFamily: FONTS.medium, fontSize: 11, color: colors.onSurfaceTertiary }}>
               Palabras clave: &quot;Pan&quot; · &quot;Oye Pan&quot; · Reposo: &quot;Descansa Pan&quot;
             </Text>

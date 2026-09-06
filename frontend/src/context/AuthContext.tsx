@@ -22,7 +22,7 @@ type AuthCtx = {
 };
 
 const Ctx = createContext<AuthCtx | undefined>(undefined);
-const ACTIVE_USER_KEY = "pan_admin_active_user";
+const ACTIVE_USER_KEY = "pandiario_active_user";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);

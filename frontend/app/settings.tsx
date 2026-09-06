@@ -332,7 +332,7 @@ export default function Settings() {
 
         {/* Cerrar Sesión */}
         <Button title="Cerrar sesión" variant="outline" icon="log-out" onPress={onLogout} loading={saving} testID="logout-button" />
-        <Text style={[styles.version, { color: colors.onSurfaceTertiary }]}>PanCon Miel · v1.0</Text>
+        <Text style={[styles.version, { color: colors.onSurfaceTertiary }]}>PanDiario · v1.0</Text>
       </ScrollView>
 
       {/* Modal Cambiar Contraseña */}

@@ -456,7 +456,7 @@ export default function Reports() {
         </head>
         <body>
           <div class="header">
-            <h1 class="title">PanCon Miel — Estado de Resultados</h1>
+            <h1 class="title">PanDiario — Estado de Resultados</h1>
             <div class="subtitle">Período: ${rangeLabel} | Generado el: ${now}</div>
           </div>
 
@@ -542,7 +542,7 @@ export default function Reports() {
             </tbody>
           </table>
 
-          <div class="footer">Documento generado automáticamente por la aplicación PanCon Miel.</div>
+          <div class="footer">Documento generado automáticamente por la aplicación PanDiario.</div>
         </body>
         </html>
       `;

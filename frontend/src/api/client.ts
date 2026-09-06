@@ -1,7 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
-export const TOKEN_KEY = "pan_admin_token";
+// PanDiario opera en modo 100% local: no existe backend remoto propio. Si en
+// algún build llega a definirse EXPO_PUBLIC_BACKEND_URL, queda ignorado a
+// propósito para evitar cualquier sincronización con un backend externo.
+const BASE = "";
+export const TOKEN_KEY = "pandiario_token";
 
 async function authHeaders(): Promise<Record<string, string>> {
   try {
@@ -13,6 +16,10 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function req(path: string, options: RequestInit = {}) {
+  if (!BASE) {
+    throw new Error("network request failed: PanDiario funciona 100% local, no hay backend remoto configurado");
+  }
+
   const headers = {
     "Content-Type": "application/json",
     ...(await authHeaders()),
@@ -42,6 +49,9 @@ export const api = {
   del: (p: string) => req(p, { method: "DELETE" }),
   // multipart upload (audio)
   upload: async (p: string, formData: FormData) => {
+    if (!BASE) {
+      throw new Error("network request failed: PanDiario funciona 100% local, no hay backend remoto configurado");
+    }
     const headers = { ...(await authHeaders()) };
     const res = await fetch(`${BASE}/api${p}`, { method: "POST", headers, body: formData as any });
     const data = await res.json().catch(() => ({}));
