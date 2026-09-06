@@ -34,7 +34,7 @@ export default function Voice() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { budgetCategories, addIncome, addExpense, addNote } = useData();
+  const { budgetCategories, addBudgetCategory, addIncome, addExpense, addNote } = useData();
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
@@ -172,13 +172,23 @@ export default function Voice() {
     if (!result) return;
     const amt = parseFloat(editAmount.replace(",", ".")) || 0;
 
+    // Si el usuario dictó o escribió una categoría que todavía no existe,
+    // se crea aquí (igual que el "+Añadir categoría" de Ingreso/Gasto) para
+    // que quede disponible como cupo real en Presupuesto y como chip en
+    // las próximas veces, en vez de quedar como una etiqueta suelta que
+    // solo vive en esta transacción.
+    const cleanCategory = editCategory.trim();
+    if (cleanCategory && cleanCategory !== "Otros" && !budgetCategories.some((c) => c.name === cleanCategory)) {
+      await addBudgetCategory({ type: "vital", name: cleanCategory, amount: 0 });
+    }
+
     if (result.kind === "ingreso") {
       if (amt <= 0) return;
-      await addIncome({ amount: amt, method: editMethod, category: editCategory, note: editNote || undefined });
+      await addIncome({ amount: amt, method: editMethod, category: cleanCategory || "Otros", note: editNote || undefined });
       Speech.speak("Ingreso guardado", { language: "es-ES" });
     } else if (result.kind === "gasto") {
       if (amt <= 0) return;
-      await addExpense({ amount: amt, method: editMethod, category: editCategory, note: editNote || undefined });
+      await addExpense({ amount: amt, method: editMethod, category: cleanCategory || "Otros", note: editNote || undefined });
       Speech.speak("Gasto guardado", { language: "es-ES" });
     } else if (result.kind === "nota") {
       if (!editNote.trim()) return;

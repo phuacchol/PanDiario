@@ -80,9 +80,19 @@ export interface FinanceIntentResult {
 
 // Elimina el verbo/expresión disparadora del texto para quedarse solo con
 // el concepto ("gasté 30 en transporte" -> "en transporte" -> "transporte").
+// Los disparadores están definidos sin tildes (para tolerar transcripciones
+// sin acentos), así que la búsqueda del recorte se hace sobre una versión
+// sin tildes del texto -stripAccents no cambia la longitud por carácter en
+// español (á/é/í/ó/ú/ñ -> a/e/i/o/u/n, 1 a 1)-, y el índice/longitud
+// encontrados ahí se recortan sobre el texto ORIGINAL para no perder los
+// acentos ni el verbo disparador si venía tildado ("gasté" no coincide con
+// el literal "gaste" del regex, y sin este mapeo el verbo quedaba pegado
+// al concepto: "gasté transporte" en vez de "transporte").
 function stripTrigger(text: string, re: RegExp): string {
-  return text
-    .replace(re, "")
+  const flat = stripAccents(text.toLowerCase());
+  const match = flat.match(re);
+  const withoutTrigger = match && match.index !== undefined ? text.slice(0, match.index) + text.slice(match.index + match[0].length) : text;
+  return withoutTrigger
     .replace(AMOUNT_RE, "")
     .replace(/\b(en|de|por|para|soles?|sol|pen|s\/\.?)\b/gi, " ")
     .replace(/\s+/g, " ")

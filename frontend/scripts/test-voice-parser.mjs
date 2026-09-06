@@ -101,6 +101,45 @@ for (const phrase of NOTA_PHRASES) {
 }
 
 // ---------------------------------------------------------------------
+// stripTrigger: el verbo/expresión disparadora dictado CON tilde (muy
+// común en habla natural: "gasté", "compré", "ingresé", "recuérdame",
+// "acuérdate") debe recortarse del concepto igual que su forma sin tilde
+// -los disparadores están definidos sin tildes para tolerar transcripciones
+// sin acentos, así que el recorte no puede depender de una coincidencia
+// literal exacta contra el texto tal como se dictó-.
+// ---------------------------------------------------------------------
+check(
+  '"gasté 45 soles en transporte" -> note="transporte" (sin el verbo pegado)',
+  analyzeFinanceIntent("gasté 45 soles en transporte").note === "transporte",
+  `obtenido: "${analyzeFinanceIntent("gasté 45 soles en transporte").note}"`
+);
+check(
+  '"compré 20 soles de pan" -> note="pan"',
+  analyzeFinanceIntent("compré 20 soles de pan").note === "pan",
+  `obtenido: "${analyzeFinanceIntent("compré 20 soles de pan").note}"`
+);
+check(
+  '"ingresé 50 soles de un amigo" -> note="un amigo"',
+  analyzeFinanceIntent("ingresé 50 soles de un amigo").note === "un amigo",
+  `obtenido: "${analyzeFinanceIntent("ingresé 50 soles de un amigo").note}"`
+);
+check(
+  '"recuérdame llamar a mamá" -> note="llamar a mamá" (sin "recuérdame")',
+  analyzeFinanceIntent("recuérdame llamar a mamá").note === "llamar a mamá",
+  `obtenido: "${analyzeFinanceIntent("recuérdame llamar a mamá").note}"`
+);
+check(
+  '"acuérdate de la reunión" -> note no incluye el verbo "acuérdate"',
+  !analyzeFinanceIntent("acuérdate de la reunión").note.toLowerCase().includes("acuérdate"),
+  `obtenido: "${analyzeFinanceIntent("acuérdate de la reunión").note}"`
+);
+check(
+  '"me pagaron 300 soles" -> note vacío (todo el texto era el disparador + monto)',
+  analyzeFinanceIntent("me pagaron 300 soles").note === "",
+  `obtenido: "${analyzeFinanceIntent("me pagaron 300 soles").note}"`
+);
+
+// ---------------------------------------------------------------------
 // matchCategory: auto-clasificación contra categorías ya creadas.
 // ---------------------------------------------------------------------
 {
