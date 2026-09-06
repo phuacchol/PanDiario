@@ -1,0 +1,217 @@
+{
+  "app_name": "Pan Administrador",
+  "personality": "4 Tactile / Playful fused with 1 iOS-Native Clean",
+  "personality_one_liner": "A friendly, welcoming business companion that makes inventory and sales feel effortless, pairing soft honey tones and rounded shapes with professional, data-dense utility.",
+  "color": {
+    "light": {
+      "surface": "#FAFAFA",
+      "onSurface": "#1A2026",
+      "surfaceSecondary": "#FFFFFF",
+      "onSurfaceSecondary": "#1A2026",
+      "surfaceTertiary": "#F3F4F6",
+      "onSurfaceTertiary": "#4B5563",
+      "surfaceInverse": "#1A2026",
+      "onSurfaceInverse": "#FFFFFF",
+      "brand": "#E89A3E",
+      "brandPrimary": "#E89A3E",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#4A90E2",
+      "onBrandSecondary": "#FFFFFF",
+      "brandTertiary": "#FDF0D5",
+      "onBrandTertiary": "#B26915",
+      "success": "#22C55E",
+      "onSuccess": "#FFFFFF",
+      "warning": "#F59E0B",
+      "onWarning": "#FFFFFF",
+      "error": "#EF4444",
+      "onError": "#FFFFFF",
+      "info": "#4A90E2",
+      "onInfo": "#FFFFFF",
+      "border": "#E5E7EB",
+      "borderStrong": "#D1D5DB",
+      "divider": "#F3F4F6"
+    },
+    "dark": {
+      "surface": "#12161A",
+      "onSurface": "#F8FAFC",
+      "surfaceSecondary": "#1A2026",
+      "onSurfaceSecondary": "#F8FAFC",
+      "surfaceTertiary": "#272D35",
+      "onSurfaceTertiary": "#CBD5E1",
+      "surfaceInverse": "#FFFFFF",
+      "onSurfaceInverse": "#1A2026",
+      "brand": "#F5A623",
+      "brandPrimary": "#F5A623",
+      "onBrandPrimary": "#1A2026",
+      "brandSecondary": "#5C9CE6",
+      "onBrandSecondary": "#FFFFFF",
+      "brandTertiary": "#382914",
+      "onBrandTertiary": "#FAD6A5",
+      "success": "#22C55E",
+      "onSuccess": "#FFFFFF",
+      "warning": "#F59E0B",
+      "onWarning": "#1A2026",
+      "error": "#EF4444",
+      "onError": "#FFFFFF",
+      "info": "#5C9CE6",
+      "onInfo": "#FFFFFF",
+      "border": "#272D35",
+      "borderStrong": "#334155",
+      "divider": "#1E293B"
+    }
+  },
+  "typography": {
+    "displayFontFamily": "Nunito",
+    "textFontFamily": "Nunito",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 32
+    }
+  },
+  "spacing": {
+    "rule": "Generous vertical breathing room for standard views, but tighter modular spacing inside data-heavy cards (POS, Inventory) to reduce scroll fatigue.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "pill": 999
+  },
+  "shadow_tier": 1,
+  "navigation": "bottom_tabs with 5 items (Inicio, Inventario, Ventas, Gastos, Reportes) + a prominent floating central mic FAB overlapping the tab bar.",
+  "icon_set": "Feather",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Use on the floating Voice Assistant mic FAB background (tinted brandPrimary).",
+      "Use on the sticky summary total blocks in the POS screen.",
+      "Use on the bottom tab bar if content scrolls behind."
+    ],
+    "dont's": [
+      "Do not use on dense inventory list rows or simple summary cards."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler",
+    "charts": "react-native-gifted-charts"
+  },
+  "haptics": {
+    "primary_button_press": "impactLight",
+    "tab_change": "selection",
+    "mic_activate": "impactMedium",
+    "pos_item_added": "impactLight",
+    "payment_success": "notificationSuccess",
+    "error_state": "notificationError"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "Dashboard providing a bird's-eye view of business health via summary cards and quick charts.",
+      "states": {
+        "loading": "Skeleton loaders matching the summary cards grid.",
+        "empty": "Kawaii toast mascot illustration with text '¡Bienvenido! Registra tu primera venta para ver tus números brillar.' + 'Nueva Venta' CTA.",
+        "error": "Kawaii toast looking sad with 'Error cargando datos' and retry button."
+      },
+      "layout": "Sticky header with 'Pan Administrador' branding and greeting. Time range selector (Hoy, Semanal, Mensual, Anual) as scrollable horizontal pills (brandTertiary active state). Top section: 3 prominent summary cards in a grid/stack (Cash vs Transfer balance, Income vs Expenses, Net Profit) using surfaceSecondary with large numbers. Bottom section: Miniature visual charts (sales line chart, expense pie chart). Generous 'xl' spacing between sections."
+    },
+    {
+      "name": "Inventory",
+      "purpose": "A browse-and-find list surface to quickly identify stock status and categories.",
+      "states": {
+        "loading": "List skeletons.",
+        "empty": "Kawaii toast holding a box: 'Tu inventario está vacío. ¡Agrega tus productos estrella!' + 'Crear Producto' CTA.",
+        "error": "Standard error alert."
+      },
+      "layout": "Header with search bar and horizontal scrollable category filter chips. List items use a tabular/card hybrid layout: thumbnail left, Name/SKU top, tabular numerals for Price (right), and a color-coded pill badge for stock status (In Stock - Green, Low - Warning Amber, Out - Error Red) directly below the title. FAB at bottom right (secondary to the central mic) for 'Add Product'."
+    },
+    {
+      "name": "Product Form",
+      "purpose": "Create or edit a product with automatic margin calculation.",
+      "states": {
+        "loading": "Form skeletons.",
+        "empty": "N/A - Form is either blank for Create or pre-filled for Edit.",
+        "error": "Inline input errors with red borders."
+      },
+      "layout": "Single column scrollable form. Clean text inputs for Name, SKU, Category. Specialized 'Pricing' module: Input for Cost, a slider component for Margin percentage, and an auto-calculating large-text display for Final Sale Price. Sticky 'Save Product' primary CTA at the bottom inside KeyboardAvoidingView."
+    },
+    {
+      "name": "Point of Sale (Ventas)",
+      "purpose": "High-speed order assembly and flexible checkout.",
+      "states": {
+        "loading": "Spinner.",
+        "empty": "Empty cart illustration (Kawaii toast with a shopping bag) in the cart area.",
+        "error": "Error toast."
+      },
+      "layout": "Split vertical hierarchy. Top 60%: Scrollable product catalog grid (2-col) with quick-add '+' buttons, plus an instant search bar. Bottom 40%: The 'Cart/Checkout' zone, which can expand via Bottom Sheet. Inside the cart: listed items with editable price fields (to allow custom haggled pricing per item), and a fixed, glassmorphism total block. Payment selector uses large segmented buttons (Efectivo / Transferencia / Mixto) before the sticky 'Cobrar' CTA."
+    },
+    {
+      "name": "Expenses",
+      "purpose": "Quickly log money going out by category and payment method.",
+      "states": {
+        "loading": "Form skeleton.",
+        "empty": "Kawaii toast illustration: 'Aún no hay gastos registrados hoy.'",
+        "error": "Error toast."
+      },
+      "layout": "Simple segmented input. Top: Large amount input pad. Middle: Expense category chips (Rent, Inventory, Utilities, etc.) wrapped in a flex-row. Bottom: Payment method toggle (Cash/Bank) and sticky 'Registrar Gasto' CTA."
+    },
+    {
+      "name": "Reports",
+      "purpose": "Deep dive into analytics with interactive visual charts.",
+      "states": {
+        "loading": "Chart skeletons.",
+        "empty": "Mascot indicating 'No hay suficientes datos todavía'.",
+        "error": "Error state."
+      },
+      "layout": "Similar to Home but expanded. Sticky time-range selector. Section 1: Bar/Line charts for Sales trends. Section 2: Donut chart for Expenses by Category with legend. Section 3: 'Top Products' list showing bestsellers. Use 'surfaceSecondary' cards for each chart container with 'md' padding."
+    },
+    {
+      "name": "Voice Assistant Modal",
+      "purpose": "Intelligent voice command center overlay.",
+      "states": {
+        "loading": "Listening animation (pulsing brandPrimary rings).",
+        "empty": "Initial state: '¿En qué te ayudo? Ej: Venta de 2 camisas a 50 soles.'",
+        "error": "Error: 'No entendí, ¿puedes repetir?'"
+      },
+      "layout": "A half-screen modal / bottom sheet that appears when the central mic tab is pressed. Dark overlay (scrim). The sheet contains a large pulsing mic icon, a real-time transcript text area, and a confirmation card showing the parsed action (e.g., 'Registrar: Venta - 2 Camisas - $100') with a 'Confirmar' CTA."
+    }
+  ],
+  "images": {
+    "empty_state_mascot": {
+      "url": "https://images.unsplash.com/photo-1558180678-ad8b95ffa810?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwzfHxjdXRlJTIwdG9hc3QlMjBjYXJ0b29ufGVufDB8fHx8MTc4ODE5NTg5OHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Cute kawaii bread toaster sketch illustration"
+    },
+    "inventory_hero_clothing": {
+      "url": "https://images.unsplash.com/photo-1603400521630-9f2de124b33b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzV8MHwxfHNlYXJjaHwxfHxtaW5pbWFsJTIwcmV0YWlsJTIwY2xvdGhpbmclMjBzdG9yZSUyMGludGVyaW9yfGVufDB8fHx8MTc4ODE5NTg5OHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Minimal retail clothing store interior with wooden racks"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the color palette provided. Primary is Honey (#E89A3E), secondary/accent is Soft Blue (#4A90E2). Dark mode uses a Deep Navy/Slate background for an elegant feel.",
+    "Use 'Nunito' everywhere to ensure a friendly, approachable ('amigable') aesthetic, but keep font weights at 400 or 500 max per the prompt rules.",
+    "The central mic button should be a Floating Action Button (FAB) that visually overlaps the bottom tab bar. When tapped, it opens the Voice Assistant Bottom Sheet.",
+    "For multi-currency formatting, ensure you support S/ (Soles), $ (USD), $ (ARS), $ (COP) depending on locale, and use dots as thousands separators.",
+    "Implement the 'Pan Administrador' (Pan Con Miel) branding seamlessly, using the cute toast mascot image specifically in empty states, onboarding, and error screens.",
+    "In the POS (Ventas) screen, ensure prices are fully editable per line item, and handle the layout such that 60% of the screen is catalog selection and 40% is the cart/checkout bottom pane.",
+    "Do NOT use any shades of purple, indigo, or violet. The only allowed blue is the soft blue explicitly requested by the user (#4A90E2 / #5C9CE6)."
+  ]
+}

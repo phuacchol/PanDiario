@@ -1,0 +1,69 @@
+{
+  "expo": {
+    "name": "PanDiario",
+    "slug": "pandiario",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "pandiario",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.phuacchol.pandiario",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Registra ventas y gastos hablando por voz"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#8AC9F2"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.phuacchol.pandiario",
+      "permissions": [
+        "RECORD_AUDIO",
+        "WAKE_LOCK"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/panconmiel/pan-logo-letras.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#8FA7D6"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Registra ventas y gastos hablando por voz"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Registra ventas y gastos hablando por voz",
+          "speechRecognitionPermission": "Permite que Pan entienda tus órdenes de venta, gasto e inventario por voz",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "backendUrl": "https://pan-administrador.onrender.com"
+    }
+  }
+}

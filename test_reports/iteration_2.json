@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 2 testing complete for Pan Administrador. BACKEND: 31/31 pytest passing (19 legacy + 12 new taxonomy/dual-intent voice). Verified GET /api/taxonomy seeds defaults (Ropa/Cosméticos/Electrónicos/General each with 7 subcats, expense_types merchandise/supplies/operating), POST/DELETE inventory-category/subcategory + expense-type/category persist correctly; adding a new inventory category with unknown name seeds the 7 GENERIC_SUBCATS. Dual-intent voice/parse with context param verified: 'buscar buzo azul' -> {kind:search,target:inventory}, 'añadir 5 pantalones a 10' -> {kind:add_product,name,stock:5,cost:10,price:null}, 'vendí un buzo a 15000 en efectivo' -> {kind:sale,method:cash,amount:15000}, 'gasté 10000 en pasajes' -> {kind:expense,type:operating,category:Transporte,amount:10000}. FRONTEND (mobile 390x844): register->dashboard->4 bottom tabs all render [Inventario/Ventas/Gastos/Reportes] with raised center mic FAB (voice-fab). TopBar topbar-home & topbar-settings visible on every tab. Inventory: invcat-add + invsub-add + inventory-search all present; Ropa/Cosméticos/Electrónicos chips render (taxonomy load). Expenses: etype-other, method-cash/method-transfer verified; selecting method-transfer reveals 6 subtypes (Transferencia Bancaria, Tarjeta Débito/Crédito, Billetera Digital, POS, PayPal, Otros). Settings: currency-EUR chip + currency-add opens world picker modal, picker-search filters to world-currency-GBP. category-manager reachable via open-category-manager and shows cm-add-inv-cat, cm-add-exp-type, cm-del-cat-Ropa, cm-add-sub-Ropa, cm-del-etype-supplies. Voice modal manual-input flow: 'buscar pantalón' typed into voice-manual-input then voice-manual-submit successfully navigated back to Inventory and pre-filled inventory-search with 'pantalón' (visible on screenshot).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "shadow* style props", "issue": "Console warning still present: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' — likely from /app/frontend/app/(tabs)/_layout.tsx fab styles (shadowColor/shadowOffset/shadowOpacity/shadowRadius, lines 77-80). Migrate to boxShadow for RN-Web."},
+      {"component": "props.pointerEvents", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents' — /app/frontend/app/(tabs)/_layout.tsx line 50 uses pointerEvents=\"box-none\" as prop; move to style.pointerEvents."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_taxonomy_voice.py",
+    "/app/test_reports/pytest/pytest_iter2.xml"
+  ],
+  "action_items": [
+    "(Low) Migrate deprecated RN-Web props in /app/frontend/app/(tabs)/_layout.tsx: replace shadow* with boxShadow and prop pointerEvents=\"box-none\" with style={{ pointerEvents: 'box-none' }}.",
+    "(Optional UX) Add testID to individual bottom tab items so E2E can target them without relying on aria-label/text (Expo Tabs currently renders as <a role=tab> without a stable testID). Not blocking — tests can tap via text/label."
+  ],
+  "critical_code_review_comments": [
+    "Taxonomy endpoints correctly use per-user taxonomy doc keyed by user_id and idempotently seed defaults on first GET.",
+    "Voice parse system prompt correctly instructs 'a X / de X' -> cost only, price=null (matches PRD).",
+    "expense-type POST derives key via regex slug and defaults categories to ['General'] — good.",
+    "server.py getting large (~755 lines) — consider splitting into routers/ modules (auth, products, sales, expenses, taxonomy, voice)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_taxonomy_voice.py (created)",
+    "/app/test_reports/iteration_2.json (created)"
+  ],
+  "success_rate": {"backend": "100% (31/31)", "frontend": "100% of new UI flows tested (tabs, topbar, taxonomy carousels, transfer subtypes, world currency picker, category manager, voice manual-input dual-intent)"},
+  "seed_data_creation": "Each test run creates fresh TEST_<uuid>@pan.com users; no shared/prod data modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL EXPO_PUBLIC_BACKEND_URL=https://margin-master-160.preview.emergentagent.com. Run `pytest /app/backend/tests/ -v` — 31 tests, ~12s. Bottom tab bar has NO stable testID per tab (Expo Tabs limitation) — use text or aria-label to tap. Voice FAB is present on Inventario/Reportes (also on Dashboard hidden tab) but hidden on Ventas/Gastos by design. Voice search intent auto-navigates back and pre-fills the target screen's search field (verified in screenshot: inventory-search shows 'pantalón'). Voice add_product intent should open /product-form prefilled with name/stock/cost and price_pending toggled ON.",
+  "rca_of_issue": "N/A — all iteration-2 features working end-to-end."
+}
