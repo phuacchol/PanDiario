@@ -5,6 +5,13 @@ const { FileStore } = require('metro-cache');
 
 const config = getDefaultConfig(__dirname);
 
+// expo-sqlite/web carga su worker vía wa-sqlite.wasm; sin registrar "wasm"
+// como assetExt, Metro no puede resolver ese import y el worker.bundle
+// responde 500, dejando cualquier getDb() colgado para siempre en web.
+if (!config.resolver.assetExts.includes('wasm')) {
+  config.resolver.assetExts.push('wasm');
+}
+
 // Use a stable on-disk store (shared across web/android)
 const root = process.env.METRO_CACHE_ROOT || path.join(__dirname, '.metro-cache');
 config.cacheStores = [
