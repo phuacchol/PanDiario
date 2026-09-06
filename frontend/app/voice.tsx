@@ -10,23 +10,28 @@ import * as Speech from "expo-speech";
 import { setAudioModeAsync } from "expo-audio";
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import { Image } from "expo-image";
-import { Button, Segmented, ChipRow, Field } from "@/src/components/ui";
+import { Button, Segmented, Field } from "@/src/components/ui";
+import { CategoryAutocomplete } from "@/src/components/CategoryAutocomplete";
+import { OriginGrid } from "@/src/components/OriginGrid";
 import { PAN_ASSETS } from "@/src/constants/mascot";
-import { useData } from "@/src/context/DataContext";
+import { useData, type Method, type Origin } from "@/src/context/DataContext";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
+import { formatMoney } from "@/src/utils/format";
 import { analyzeFinanceIntent, type FinanceIntentKind, type FinanceIntentResult } from "@/src/utils/financeVoice";
 
-// Half-duplex estricto: cada frase requiere una pulsación explícita del
-// micrófono. Nunca se reactiva la escucha sola (ni tras hablar, ni tras
-// guardar) — el usuario siempre decide cuándo empieza la siguiente orden.
+// Push-to-talk: el micrófono escucha mientras se mantiene presionado y
+// procesa el comando de inmediato al soltar -nunca se reactiva la
+// escucha sola, cada frase requiere una nueva pulsación-.
 const LANGUAGE_FALLBACKS = ["es-PE", "es-ES", "es-US"];
 
 type Phase = "idle" | "listening" | "processing" | "confirm" | "error";
 
+// Gasto: flecha hacia abajo (dinero que sale) en rojo/coral.
+// Ingreso: flecha hacia arriba (dinero que entra) en verde menta.
 const KIND_META: Record<Exclude<FinanceIntentKind, "unknown">, { label: string; icon: keyof typeof Feather.glyphMap; color: string }> = {
-  ingreso: { label: "Ingreso", icon: "arrow-down-circle", color: "#10B981" },
-  gasto: { label: "Gasto", icon: "arrow-up-circle", color: "#EF4444" },
+  ingreso: { label: "Ingreso", icon: "arrow-up-circle", color: "#10B981" },
+  gasto: { label: "Gasto", icon: "arrow-down-circle", color: "#EF4444" },
   nota: { label: "Nota", icon: "edit-3", color: "#F59E0B" },
 };
 
@@ -42,7 +47,9 @@ export default function Voice() {
   const [result, setResult] = useState<FinanceIntentResult | null>(null);
 
   const [editAmount, setEditAmount] = useState("");
-  const [editMethod, setEditMethod] = useState<"efectivo" | "transferencia">("efectivo");
+  const [editMethod, setEditMethod] = useState<Method>("efectivo");
+  const [editCashAmount, setEditCashAmount] = useState("");
+  const [editOrigin, setEditOrigin] = useState<Origin>("cuenta");
   const [editCategory, setEditCategory] = useState("Otros");
   const [editNote, setEditNote] = useState("");
 
@@ -51,12 +58,19 @@ export default function Voice() {
   const phaseRef = useRef<Phase>("idle");
   phaseRef.current = phase;
 
+  const digitalRemainder = (() => {
+    const amt = parseFloat(editAmount.replace(",", ".")) || 0;
+    const cash = parseFloat(editCashAmount.replace(",", ".")) || 0;
+    return Math.max(0, amt - cash);
+  })();
+
   const close = () => {
     try {
       ExpoSpeechRecognitionModule.stop();
     } catch {}
     Speech.stop();
-    router.back();
+    if (router.canDismiss()) router.dismiss();
+    else router.replace("/");
   };
 
   useEffect(() => {
@@ -109,6 +123,8 @@ export default function Voice() {
     setResult(analyzed);
     setEditAmount(analyzed.amount ? String(analyzed.amount) : "");
     setEditMethod(analyzed.method || "efectivo");
+    setEditCashAmount("");
+    setEditOrigin("cuenta");
     setEditCategory(analyzed.category || "Otros");
     setEditNote(analyzed.note || "");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -171,6 +187,7 @@ export default function Voice() {
   const handleConfirm = async () => {
     if (!result) return;
     const amt = parseFloat(editAmount.replace(",", ".")) || 0;
+    const cash = editMethod === "mixto" ? parseFloat(editCashAmount.replace(",", ".")) || 0 : undefined;
 
     // Si el usuario dictó o escribió una categoría que todavía no existe,
     // se crea aquí (igual que el "+Añadir categoría" de Ingreso/Gasto) para
@@ -179,16 +196,17 @@ export default function Voice() {
     // solo vive en esta transacción.
     const cleanCategory = editCategory.trim();
     if (cleanCategory && cleanCategory !== "Otros" && !budgetCategories.some((c) => c.name === cleanCategory)) {
-      await addBudgetCategory({ type: "vital", name: cleanCategory, amount: 0 });
+      const type = result.kind === "ingreso" ? "ingreso" : editOrigin === "secundario" ? "secundario" : "vital";
+      await addBudgetCategory({ type, name: cleanCategory, amount: 0 });
     }
 
     if (result.kind === "ingreso") {
       if (amt <= 0) return;
-      await addIncome({ amount: amt, method: editMethod, category: cleanCategory || "Otros", note: editNote || undefined });
+      await addIncome({ amount: amt, method: editMethod, cashAmount: cash, category: cleanCategory || "Otros", note: editNote || undefined });
       Speech.speak("Ingreso guardado", { language: "es-ES" });
     } else if (result.kind === "gasto") {
       if (amt <= 0) return;
-      await addExpense({ amount: amt, method: editMethod, category: cleanCategory || "Otros", note: editNote || undefined });
+      await addExpense({ amount: amt, method: editMethod, cashAmount: cash, origin: editOrigin, category: cleanCategory || "Otros", note: editNote || undefined });
       Speech.speak("Gasto guardado", { language: "es-ES" });
     } else if (result.kind === "nota") {
       if (!editNote.trim()) return;
@@ -199,7 +217,6 @@ export default function Voice() {
     close();
   };
 
-  const categoryOptions = [{ key: "Otros", label: "Otros" }, ...budgetCategories.map((c) => ({ key: c.name, label: c.name }))];
   const meta = result ? KIND_META[result.kind as Exclude<FinanceIntentKind, "unknown">] : null;
 
   return (
@@ -211,8 +228,9 @@ export default function Voice() {
       <View style={[styles.sheet, { backgroundColor: colors.surfaceSecondary, paddingBottom: insets.bottom + SPACING.lg }]}>
         <View style={[styles.grabber, { backgroundColor: colors.borderStrong }]} />
         <View style={styles.sheetHeader}>
+          <View style={styles.sheetHeaderSpacer} />
           <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>Asistente PanDiario</Text>
-          <Pressable onPress={close} hitSlop={8} testID="voice-close">
+          <Pressable onPress={close} hitSlop={8} testID="voice-close" style={styles.sheetHeaderSpacer}>
             <Feather name="x" size={24} color={colors.onSurfaceTertiary} />
           </Pressable>
         </View>
@@ -226,11 +244,12 @@ export default function Voice() {
               testID="voice-mascot"
             />
             <Text style={[styles.transcript, { color: colors.onSurface }]} numberOfLines={3}>
-              {phase === "listening" ? transcript || "Escuchando..." : phase === "processing" ? "Procesando..." : "Presiona el micrófono y di tu orden"}
+              {phase === "listening" ? transcript || "Escuchando..." : phase === "processing" ? "Procesando..." : "Mantén presionado el micrófono y di tu orden"}
             </Text>
 
             <Pressable
-              onPress={phase === "listening" ? stopListening : startListening}
+              onPressIn={startListening}
+              onPressOut={stopListening}
               style={[styles.micBtn, { backgroundColor: phase === "listening" ? colors.error : colors.brand }]}
               testID="voice-mic-button"
             >
@@ -283,20 +302,30 @@ export default function Voice() {
                   options={[
                     { key: "efectivo", label: "Efectivo" },
                     { key: "transferencia", label: "Transferencia" },
+                    { key: "mixto", label: "Mixto" },
                   ]}
                   value={editMethod}
-                  onChange={(k) => setEditMethod(k as any)}
+                  onChange={(k) => setEditMethod(k as Method)}
                 />
-                <View style={{ gap: SPACING.xs }}>
-                  <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Categoría</Text>
-                  <ChipRow testID="voice-confirm-category" options={categoryOptions} value={editCategory} onChange={setEditCategory} />
-                  <Field
-                    placeholder="O escribe una categoría nueva"
-                    value={editCategory}
-                    onChangeText={setEditCategory}
-                    testID="voice-confirm-category-input"
-                  />
-                </View>
+
+                {editMethod === "mixto" ? (
+                  <View style={{ gap: SPACING.xs }}>
+                    <Field label="Efectivo" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={editCashAmount} onChangeText={setEditCashAmount} testID="voice-confirm-cash" />
+                    <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm }}>
+                      Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {result.kind === "gasto" ? (
+                  <View style={{ gap: SPACING.xs }}>
+                    <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Origen del dinero</Text>
+                    <OriginGrid value={editOrigin} onChange={setEditOrigin} testID="voice-confirm-origin-grid" />
+                  </View>
+                ) : null}
+
+                <CategoryAutocomplete value={editCategory} onChange={setEditCategory} categories={budgetCategories} testID="voice-confirm-category-input" />
+
                 <Field label="Nota (opcional)" value={editNote} onChangeText={setEditNote} testID="voice-confirm-note" />
               </>
             ) : (
@@ -329,7 +358,8 @@ const styles = StyleSheet.create({
   },
   grabber: { width: 40, height: 5, borderRadius: RADIUS.pill, alignSelf: "center" },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sheetTitle: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg },
+  sheetHeaderSpacer: { width: 24 },
+  sheetTitle: { flex: 1, textAlign: "center", fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg },
   centerArea: { alignItems: "center", gap: SPACING.md, paddingVertical: SPACING.lg },
   mascot: { width: 120, height: 120 },
   transcript: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, textAlign: "center", minHeight: 40 },

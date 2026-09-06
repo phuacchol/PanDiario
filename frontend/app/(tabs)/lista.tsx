@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
 import { TopBar } from "@/src/components/TopBar";
 import { EmptyState } from "@/src/components/Mascot";
-import { Button, Field, ChipRow, Segmented } from "@/src/components/ui";
+import { Button, Field, Segmented } from "@/src/components/ui";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
+import { TimePickerModal } from "@/src/components/TimePickerModal";
 import { CompraOverlayModal } from "@/src/components/home/CompraOverlayModal";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type ListRecord } from "@/src/context/DataContext";
@@ -12,30 +14,41 @@ import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 import { formatLocalDate, formatLocalTime } from "@/src/utils/format";
 
 type Panel = "listas" | "programadas";
+type DraftItem = { id: string; text: string; done: boolean };
 
 export default function ListaScreen() {
   const { colors } = useTheme();
-  const { lists, listEntries, budgetCategories, addList, deleteList, addListEntry, toggleListEntry, deleteListEntry, completeList } = useData();
+  const { lists, listEntries, addList, deleteList, addListEntry, toggleListEntry, deleteListEntry, completeList } = useData();
 
   const [panel, setPanel] = useState<Panel>("listas");
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [showNew, setShowNew] = useState(false);
   const [activeListId, setActiveListId] = useState<string | null>(null);
 
   const [newTitle, setNewTitle] = useState("");
-  const [newCategory, setNewCategory] = useState("Otros");
   const [isProgrammed, setIsProgrammed] = useState(false);
   const [date, setDate] = useState("");
   const [hour, setHour] = useState("08");
   const [minute, setMinute] = useState("00");
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [draftItems, setDraftItems] = useState<DraftItem[]>([]);
+  const [draftItemText, setDraftItemText] = useState("");
 
-  const categories = useMemo(() => {
-    const names = new Set(budgetCategories.map((c) => c.name));
-    lists.forEach((l) => l.category && names.add(l.category));
-    return ["Todas", ...Array.from(names)];
-  }, [budgetCategories, lists]);
+  // Reinicia el formulario cada vez que se abre "Nueva lista": evita que un
+  // borrador cancelado (título, ítems ya tecleados) quede pegado al volver
+  // a abrir el modal más adelante.
+  useEffect(() => {
+    if (showNew) {
+      setNewTitle("");
+      setIsProgrammed(false);
+      setDate("");
+      setHour("08");
+      setMinute("00");
+      setDraftItems([]);
+      setDraftItemText("");
+    }
+  }, [showNew]);
 
   const query = search.trim().toLowerCase();
   const filtered = useMemo(() => {
@@ -43,12 +56,18 @@ export default function ListaScreen() {
       .filter((l) => l.status === "active")
       .filter((l) => (panel === "programadas" ? l.is_programmed : !l.is_programmed))
       .filter((l) => !query || l.title.toLowerCase().includes(query))
-      .filter((l) => categoryFilter === "Todas" || l.category === categoryFilter)
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [lists, panel, query, categoryFilter]);
+  }, [lists, panel, query]);
 
   const activeList = lists.find((l) => l.id === activeListId) || null;
   const activeEntries = listEntries.filter((e) => e.list_id === activeListId);
+
+  const addDraftItem = () => {
+    const clean = draftItemText.trim();
+    if (!clean) return;
+    setDraftItems((prev) => [...prev, { id: `draft_${Date.now()}_${Math.floor(Math.random() * 10000)}`, text: clean, done: false }]);
+    setDraftItemText("");
+  };
 
   const onCreate = async () => {
     const title = newTitle.trim();
@@ -58,10 +77,12 @@ export default function ListaScreen() {
       const [y, m, d] = date.split("-").map(Number);
       scheduledAt = new Date(y, (m || 1) - 1, d || 1, parseInt(hour, 10) || 0, parseInt(minute, 10) || 0).toISOString();
     }
-    await addList({ title, category: newCategory, isProgrammed: isProgrammed && !!scheduledAt, scheduledAt, leadMinutes: 15 });
-    setNewTitle("");
-    setIsProgrammed(false);
-    setDate("");
+    const newListId = await addList({ title, isProgrammed: isProgrammed && !!scheduledAt, scheduledAt, leadMinutes: 15 });
+    if (newListId) {
+      for (const item of draftItems) {
+        await addListEntry(newListId, item.text);
+      }
+    }
     setShowNew(false);
   };
 
@@ -81,8 +102,6 @@ export default function ListaScreen() {
             testID="lista-search-input"
           />
         </View>
-
-        <ChipRow options={categories.map((c) => ({ key: c, label: c }))} value={categoryFilter} onChange={setCategoryFilter} testID="lista-category-chips" />
 
         <Segmented
           testID="lista-panel-tabs"
@@ -106,10 +125,11 @@ export default function ListaScreen() {
               <Text style={[styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
                 {item.title}
               </Text>
-              <Text style={[styles.cardMeta, { color: colors.onSurfaceTertiary }]}>
-                {item.category || "Otros"}
-                {item.is_programmed && item.scheduled_at ? ` · ${formatLocalDate(item.scheduled_at)} ${formatLocalTime(item.scheduled_at)}` : ""}
-              </Text>
+              {item.is_programmed && item.scheduled_at ? (
+                <Text style={[styles.cardMeta, { color: colors.onSurfaceTertiary }]}>
+                  {formatLocalDate(item.scheduled_at)} {formatLocalTime(item.scheduled_at)}
+                </Text>
+              ) : null}
             </View>
             <Pressable onPress={() => setActiveListId(item.id)} hitSlop={8} testID={`lista-play-${item.id}`}>
               <Feather name="play-circle" size={22} color={colors.brand} />
@@ -131,41 +151,71 @@ export default function ListaScreen() {
       <Modal visible={showNew} transparent animationType="fade" onRequestClose={() => setShowNew(false)}>
         <View style={styles.backdrop}>
           <View style={[styles.newCard, { backgroundColor: colors.surfaceSecondary }]}>
-            <Text style={[styles.cardTitle, { color: colors.onSurface }]}>Nueva lista</Text>
-            <Field label="Nombre" placeholder="Ej. Compras del súper" value={newTitle} onChangeText={setNewTitle} testID="lista-new-title" />
-            <View style={{ gap: SPACING.xs }}>
-              <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Categoría</Text>
-              <ChipRow
-                options={Array.from(new Set([...categories.filter((c) => c !== "Todas"), "Otros"])).map((c) => ({ key: c, label: c }))}
-                value={newCategory}
-                onChange={setNewCategory}
-              />
-            </View>
+            <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md }} bottomOffset={20}>
+              <Text style={[styles.cardTitle, { color: colors.onSurface }]}>Nueva lista</Text>
+              <Field label="Nombre" placeholder="Ej. Compras del súper" value={newTitle} onChangeText={setNewTitle} testID="lista-new-title" />
 
-            <Pressable style={styles.reminderToggle} onPress={() => setIsProgrammed((v) => !v)} testID="lista-programmed-toggle">
-              <Feather name={isProgrammed ? "check-square" : "square"} size={20} color={colors.brand} />
-              <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>Lista programada</Text>
-            </Pressable>
-
-            {isProgrammed ? (
-              <View style={{ gap: SPACING.sm }}>
-                <Pressable style={[styles.dateBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]} onPress={() => setShowDatePicker(true)}>
-                  <Feather name="calendar" size={16} color={colors.onSurfaceTertiary} />
-                  <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{date ? formatLocalDate(date, { withYear: true }) : "Elegir fecha"}</Text>
-                </Pressable>
-                <View style={{ flexDirection: "row", gap: SPACING.sm }}>
-                  <Field label="Hora" keyboardType="number-pad" value={hour} onChangeText={setHour} containerStyle={{ flex: 1 }} />
-                  <Field label="Minuto" keyboardType="number-pad" value={minute} onChangeText={setMinute} containerStyle={{ flex: 1 }} />
+              <View style={{ gap: SPACING.xs }}>
+                <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Ítems</Text>
+                <View style={[styles.addItemRow, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
+                  <TextInput
+                    value={draftItemText}
+                    onChangeText={setDraftItemText}
+                    placeholder="Ej. 5 panes"
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    style={[styles.addItemInput, { color: colors.onSurface }]}
+                    onSubmitEditing={addDraftItem}
+                    testID="lista-new-item-input"
+                  />
+                  <Pressable onPress={addDraftItem} style={[styles.addItemBtn, { backgroundColor: colors.brand }]} testID="lista-new-item-add">
+                    <Feather name="plus" size={18} color={colors.onBrand} />
+                  </Pressable>
                 </View>
-              </View>
-            ) : null}
 
-            <View style={{ flexDirection: "row", gap: SPACING.md }}>
-              <Pressable style={styles.cancelBtn} onPress={() => setShowNew(false)}>
-                <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>Cancelar</Text>
+                {draftItems.map((item) => (
+                  <View key={item.id} style={[styles.draftItemRow, { backgroundColor: colors.surfaceTertiary }]}>
+                    <Pressable
+                      onPress={() => setDraftItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
+                      hitSlop={8}
+                      testID={`lista-new-item-toggle-${item.id}`}
+                    >
+                      <Feather name={item.done ? "check-circle" : "circle"} size={20} color={item.done ? colors.success : colors.onSurfaceTertiary} />
+                    </Pressable>
+                    <Text style={{ flex: 1, color: colors.onSurface, fontFamily: FONTS.medium, textDecorationLine: item.done ? "line-through" : "none" }} numberOfLines={1}>
+                      {item.text}
+                    </Text>
+                    <Pressable onPress={() => setDraftItems((prev) => prev.filter((i) => i.id !== item.id))} hitSlop={8} testID={`lista-new-item-remove-${item.id}`}>
+                      <Feather name="trash-2" size={18} color={colors.error} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+
+              <Pressable style={styles.reminderToggle} onPress={() => setIsProgrammed((v) => !v)} testID="lista-programmed-toggle">
+                <Feather name={isProgrammed ? "check-square" : "square"} size={20} color={colors.brand} />
+                <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>Lista programada</Text>
               </Pressable>
-              <Button title="Crear" onPress={onCreate} style={{ flex: 1 }} testID="lista-new-submit" />
-            </View>
+
+              {isProgrammed ? (
+                <View style={{ gap: SPACING.sm }}>
+                  <Pressable style={[styles.dateBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]} onPress={() => setShowDatePicker(true)} testID="lista-date-button">
+                    <Feather name="calendar" size={16} color={colors.onSurfaceTertiary} />
+                    <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{date ? formatLocalDate(date, { withYear: true }) : "Elegir fecha"}</Text>
+                  </Pressable>
+                  <Pressable style={[styles.dateBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]} onPress={() => setShowTimePicker(true)} testID="lista-time-button">
+                    <Feather name="clock" size={16} color={colors.onSurfaceTertiary} />
+                    <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{`${hour}:${minute}`}</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              <View style={{ flexDirection: "row", gap: SPACING.md }}>
+                <Pressable style={styles.cancelBtn} onPress={() => setShowNew(false)} testID="lista-new-cancel">
+                  <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>Cancelar</Text>
+                </Pressable>
+                <Button title="Crear" onPress={onCreate} style={{ flex: 1 }} testID="lista-new-submit" />
+              </View>
+            </KeyboardAwareScrollView>
           </View>
         </View>
       </Modal>
@@ -180,6 +230,20 @@ export default function ListaScreen() {
           setShowDatePicker(false);
         }}
         onRequestClose={() => setShowDatePicker(false)}
+      />
+
+      <TimePickerModal
+        visible={showTimePicker}
+        initialHour={parseInt(hour, 10) || 0}
+        initialMinute={parseInt(minute, 10) || 0}
+        colors={colors}
+        title="Hora programada"
+        onSelect={(h, m) => {
+          setHour(String(h).padStart(2, "0"));
+          setMinute(String(m).padStart(2, "0"));
+          setShowTimePicker(false);
+        }}
+        onRequestClose={() => setShowTimePicker(false)}
       />
 
       <CompraOverlayModal
@@ -205,8 +269,12 @@ const styles = StyleSheet.create({
   cardMeta: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, marginTop: 2 },
   fab: { position: "absolute", right: SPACING.lg, bottom: SPACING.xl, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", elevation: 6, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   backdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.5)", alignItems: "center", justifyContent: "center", padding: SPACING.xl },
-  newCard: { width: "100%", maxWidth: 380, borderRadius: RADIUS.lg, padding: SPACING.xl, gap: SPACING.md },
+  newCard: { width: "100%", maxWidth: 380, maxHeight: "85%", borderRadius: RADIUS.lg, padding: SPACING.xl },
   reminderToggle: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
   dateBtn: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, height: 48, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md },
   cancelBtn: { flex: 1, height: 48, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center" },
+  addItemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, borderWidth: 1, paddingLeft: SPACING.md, paddingRight: 6, height: 48 },
+  addItemInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
+  addItemBtn: { width: 36, height: 36, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
+  draftItemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.sm, borderRadius: RADIUS.md },
 });

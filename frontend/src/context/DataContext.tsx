@@ -5,8 +5,11 @@ import { computeCycleLabel, daysUntil, splitSavingsFromWallet } from "@/src/util
 
 export { computeCycleLabel, daysUntil };
 
-export type BudgetType = "vital" | "secundario";
-export type Method = "efectivo" | "transferencia";
+// "vital"/"secundario" son categorías de Gasto (con cupo, usadas por la
+// Calculadora de Presupuesto); "ingreso" es la categorización de Ingresos
+// (sin cupo, solo para clasificar/autocompletar).
+export type BudgetType = "vital" | "secundario" | "ingreso";
+export type Method = "efectivo" | "transferencia" | "mixto";
 export type TxKind = "ingreso" | "gasto";
 export type Origin = "cuenta" | "vital" | "secundario" | "caja_chica" | "ahorro";
 
@@ -33,6 +36,9 @@ export type Transaction = {
   kind: TxKind;
   amount: number;
   method: Method | null;
+  // Solo relevante cuando method === "mixto": monto que fue en efectivo (el
+  // resto hasta `amount` se asume en transferencia).
+  cashAmount: number | null;
   category: string | null;
   origin: Origin;
   note: string | null;
@@ -88,6 +94,24 @@ export type ListEntry = {
   created_at: string;
 };
 
+// Categorías base predeterminadas de la Calculadora de Presupuesto,
+// sembradas una sola vez en cuentas nuevas (ver ensureBootstrap).
+const DEFAULT_VITAL_CATEGORIES = [
+  "Alimentación / Mercado",
+  "Vivienda / Alquiler",
+  "Servicios básicos (Luz, Agua, Gas)",
+  "Transporte",
+  "Salud / Medicinas",
+  "Educación",
+];
+const DEFAULT_SECUNDARIO_CATEGORIES = [
+  "Entretenimiento / Salidas",
+  "Ropa y Calzado",
+  "Suscripciones digitales",
+  "Cuidado personal",
+  "Varios / Imprevistos",
+];
+
 function newId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 }
@@ -118,11 +142,11 @@ type DataCtx = {
   loading: boolean;
   refresh: () => Promise<void>;
 
-  addIncome: (p: { amount: number; method: Method; category?: string; note?: string; createdAt?: string }) => Promise<void>;
-  addExpense: (p: { amount: number; method: Method; category?: string; origin?: Origin; note?: string; createdAt?: string }) => Promise<void>;
+  addIncome: (p: { amount: number; method: Method; cashAmount?: number; category?: string; note?: string; createdAt?: string }) => Promise<void>;
+  addExpense: (p: { amount: number; method: Method; cashAmount?: number; category?: string; origin?: Origin; note?: string; createdAt?: string }) => Promise<void>;
   updateTransaction: (
     id: string,
-    patch: { amount?: number; method?: Method; category?: string; origin?: Origin; note?: string; createdAt?: string }
+    patch: { amount?: number; method?: Method; cashAmount?: number; category?: string; origin?: Origin; note?: string; createdAt?: string }
   ) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
 
@@ -181,6 +205,7 @@ function mapTx(row: any): Transaction {
     kind: row.kind,
     amount: Number(row.amount) || 0,
     method: row.method || null,
+    cashAmount: row.cash_amount != null ? Number(row.cash_amount) : null,
     category: row.category || null,
     origin: (row.origin || "cuenta") as Origin,
     note: row.note || null,
@@ -268,6 +293,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       openCycle = await db.getFirstAsync<any>(`SELECT * FROM cycles WHERE id = ?`, [id]).catch(() => null);
     }
 
+    // Categorías base predeterminadas para la Calculadora de Presupuesto:
+    // solo se siembran una vez, si la tabla está totalmente vacía (cuenta
+    // recién creada) -así no reaparecen si el usuario borró todo a propósito.
+    const categoryCountRow = await db.getFirstAsync<any>(`SELECT COUNT(*) as n FROM budget_categories`).catch(() => null);
+    if (!categoryCountRow || Number(categoryCountRow.n) === 0) {
+      const now = todayISO();
+      for (const name of DEFAULT_VITAL_CATEGORIES) {
+        await db.runAsync(`INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, 'vital', ?, 0, ?)`, [newId("cat"), name, now]).catch(() => {});
+      }
+      for (const name of DEFAULT_SECUNDARIO_CATEGORIES) {
+        await db.runAsync(`INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, 'secundario', ?, 0, ?)`, [newId("cat"), name, now]).catch(() => {});
+      }
+    }
+
     return { walletRow, openCycle };
   }, []);
 
@@ -320,7 +359,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // si el origen es un presupuesto, sobre el cupo de esa categoría. `sign`
   // +1 para aplicar el movimiento, -1 para revertirlo (edición/eliminación).
   const applyTxEffect = useCallback(
-    (kind: TxKind, amount: number, method: Method, origin: Origin, category: string | null, sign: 1 | -1) => {
+    (kind: TxKind, amount: number, method: Method, origin: Origin, category: string | null, sign: 1 | -1, cashAmount?: number | null) => {
       const txSign = kind === "ingreso" ? 1 : -1;
       const delta = sign * txSign * amount;
 
@@ -330,6 +369,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           next.cajaChica += delta;
         } else if (origin === "ahorro") {
           next.ahorro += delta;
+        } else if (method === "mixto") {
+          // Pago mixto: se reparte entre Efectivo y Digital según el monto
+          // en efectivo declarado; el resto hasta `amount` va a Digital.
+          const cash = Math.min(Math.max(Number(cashAmount) || 0, 0), amount);
+          const digital = amount - cash;
+          next.carteraEfectivo += sign * txSign * cash;
+          next.carteraDigital += sign * txSign * digital;
         } else {
           // 'cuenta', 'vital' y 'secundario' siempre mueven la Cuenta Actual.
           if (method === "efectivo") next.carteraEfectivo += delta;
@@ -359,23 +405,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addIncome = useCallback(
-    async (p: { amount: number; method: Method; category?: string; note?: string; createdAt?: string }) => {
+    async (p: { amount: number; method: Method; cashAmount?: number; category?: string; note?: string; createdAt?: string }) => {
       const amount = Number(p.amount) || 0;
       if (amount <= 0 || !openCycleId) return;
       const now = p.createdAt || todayISO();
       const id = newId("tx");
       const category = p.category || "Otros";
+      const cashAmount = p.method === "mixto" ? Number(p.cashAmount) || 0 : null;
 
-      applyTxEffect("ingreso", amount, p.method, "cuenta", null, 1);
+      applyTxEffect("ingreso", amount, p.method, "cuenta", null, 1, cashAmount);
 
-      const newTx: Transaction = { id, kind: "ingreso", amount, method: p.method, category, origin: "cuenta", note: p.note || null, created_at: now, cycle_id: openCycleId };
+      const newTx: Transaction = { id, kind: "ingreso", amount, method: p.method, cashAmount, category, origin: "cuenta", note: p.note || null, created_at: now, cycle_id: openCycleId };
       setTransactions((prev) => [newTx, ...prev].sort((a, b) => b.created_at.localeCompare(a.created_at)));
 
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO transactions (id, kind, amount, method, category, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, 'cuenta', ?, ?, ?)`,
-          [id, amount, p.method, category, p.note || null, now, openCycleId]
+          `INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, 'cuenta', ?, ?, ?)`,
+          [id, amount, p.method, cashAmount, category, p.note || null, now, openCycleId]
         ).catch(() => {});
       }
     },
@@ -383,24 +430,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addExpense = useCallback(
-    async (p: { amount: number; method: Method; category?: string; origin?: Origin; note?: string; createdAt?: string }) => {
+    async (p: { amount: number; method: Method; cashAmount?: number; category?: string; origin?: Origin; note?: string; createdAt?: string }) => {
       const amount = Number(p.amount) || 0;
       if (amount <= 0 || !openCycleId) return;
       const now = p.createdAt || todayISO();
       const id = newId("tx");
       const category = p.category || "Otros";
       const origin = p.origin || "cuenta";
+      const cashAmount = p.method === "mixto" ? Number(p.cashAmount) || 0 : null;
 
-      applyTxEffect("gasto", amount, p.method, origin, category, 1);
+      applyTxEffect("gasto", amount, p.method, origin, category, 1, cashAmount);
 
-      const newTx: Transaction = { id, kind: "gasto", amount, method: p.method, category, origin, note: p.note || null, created_at: now, cycle_id: openCycleId };
+      const newTx: Transaction = { id, kind: "gasto", amount, method: p.method, cashAmount, category, origin, note: p.note || null, created_at: now, cycle_id: openCycleId };
       setTransactions((prev) => [newTx, ...prev].sort((a, b) => b.created_at.localeCompare(a.created_at)));
 
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO transactions (id, kind, amount, method, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?)`,
-          [id, amount, p.method, category, origin, p.note || null, now, openCycleId]
+          `INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, amount, p.method, cashAmount, category, origin, p.note || null, now, openCycleId]
         ).catch(() => {});
       }
     },
@@ -408,31 +456,32 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateTransaction = useCallback(
-    async (id: string, patch: { amount?: number; method?: Method; category?: string; origin?: Origin; note?: string; createdAt?: string }) => {
+    async (id: string, patch: { amount?: number; method?: Method; cashAmount?: number; category?: string; origin?: Origin; note?: string; createdAt?: string }) => {
       const target = transactions.find((t) => t.id === id);
       if (!target) return;
 
       // Revierte el efecto anterior y aplica el nuevo: así el recálculo de
       // saldos/cupos siempre queda consistente, sin importar qué campo cambió.
-      applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1);
+      applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1, target.cashAmount);
 
       const nextAmount = patch.amount !== undefined ? Number(patch.amount) || 0 : target.amount;
       const nextMethod = patch.method || target.method || "efectivo";
+      const nextCashAmount = nextMethod === "mixto" ? Number(patch.cashAmount !== undefined ? patch.cashAmount : target.cashAmount) || 0 : null;
       const nextOrigin = patch.origin || target.origin;
       const nextCategory = patch.category !== undefined ? patch.category : target.category;
       const nextNote = patch.note !== undefined ? patch.note : target.note;
       const nextCreatedAt = patch.createdAt || target.created_at;
 
-      applyTxEffect(target.kind, nextAmount, nextMethod, nextOrigin, nextCategory, 1);
+      applyTxEffect(target.kind, nextAmount, nextMethod, nextOrigin, nextCategory, 1, nextCashAmount);
 
-      const updated: Transaction = { ...target, amount: nextAmount, method: nextMethod, origin: nextOrigin, category: nextCategory, note: nextNote, created_at: nextCreatedAt };
+      const updated: Transaction = { ...target, amount: nextAmount, method: nextMethod, cashAmount: nextCashAmount, origin: nextOrigin, category: nextCategory, note: nextNote, created_at: nextCreatedAt };
       setTransactions((prev) => prev.map((t) => (t.id === id ? updated : t)).sort((a, b) => b.created_at.localeCompare(a.created_at)));
 
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `UPDATE transactions SET amount = ?, method = ?, category = ?, origin = ?, note = ?, created_at = ? WHERE id = ?`,
-          [nextAmount, nextMethod, nextCategory, nextOrigin, nextNote, nextCreatedAt, id]
+          `UPDATE transactions SET amount = ?, method = ?, cash_amount = ?, category = ?, origin = ?, note = ?, created_at = ? WHERE id = ?`,
+          [nextAmount, nextMethod, nextCashAmount, nextCategory, nextOrigin, nextNote, nextCreatedAt, id]
         ).catch(() => {});
       }
     },
@@ -445,7 +494,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setTransactions((prev) => prev.filter((t) => t.id !== id));
 
       if (target) {
-        applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1);
+        applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1, target.cashAmount);
       }
 
       const db = await getDb();
@@ -482,8 +531,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const db = await getDb();
 
       setWallet((prev) => {
-        // El remanente que quedaba en Cartera se traslada a Caja Chica.
-        const resto = prev.carteraEfectivo + prev.carteraDigital;
+        // El primer sueldo de la cuenta no tiene remanente real que
+        // trasladar (la Cuenta Actual nace en 0) ni un periodo previo que
+        // cerrar: actúa solo como Apertura de Ciclo Inicial. El archivado
+        // mensual y la transferencia a Caja Chica arrancan desde el
+        // segundo registro en adelante.
+        const isFirstSalary = prev.lastSalary <= 0;
+        const resto = isFirstSalary ? 0 : prev.carteraEfectivo + prev.carteraDigital;
 
         let carteraEfectivo = 0;
         let carteraDigital = 0;
@@ -509,6 +563,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
         (async () => {
           if (!db) return;
+
+          if (isFirstSalary) {
+            // Solo adelanta el inicio del ciclo ya abierto a este momento
+            // (el periodo real empieza cuando entra el primer sueldo, no
+            // cuando se creó la cuenta); no cierra ni archiva nada, así
+            // el Historial de Cierre permanece vacío.
+            await db.runAsync(`UPDATE cycles SET start_date = ? WHERE id = ?`, [now, openCycleId]).catch(() => {});
+            refresh();
+            return;
+          }
+
           // Cierra el ciclo actual con su snapshot y abre uno nuevo.
           const openCycleRow = await db.getFirstAsync<any>(`SELECT * FROM cycles WHERE id = ?`, [openCycleId]).catch(() => null);
           const startDate = openCycleRow?.start_date ? new Date(openCycleRow.start_date) : new Date(prev.cycleStart);

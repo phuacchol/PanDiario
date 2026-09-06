@@ -217,17 +217,26 @@ export function Field({
   label,
   icon,
   containerStyle,
+  style,
+  multiline,
   ...props
 }: TextInputProps & { label?: string; icon?: keyof typeof Feather.glyphMap; containerStyle?: ViewStyle }) {
   const { colors } = useTheme();
   return (
     <View style={[{ gap: SPACING.xs }, containerStyle]}>
       {label ? <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>{label}</Text> : null}
-      <View style={[styles.inputWrap, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
+      <View
+        style={[
+          styles.inputWrap,
+          { backgroundColor: colors.surfaceTertiary, borderColor: colors.border },
+          multiline && styles.inputWrapMultiline,
+        ]}
+      >
         {icon ? <Feather name={icon} size={18} color={colors.onSurfaceTertiary} /> : null}
         <TextInput
           placeholderTextColor={colors.onSurfaceTertiary}
-          style={[styles.input, { color: colors.onSurface }]}
+          multiline={multiline}
+          style={[styles.input, { color: colors.onSurface }, multiline && styles.inputMultiline, style]}
           {...props}
         />
       </View>
@@ -364,4 +373,6 @@ const styles = StyleSheet.create({
   label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
   inputWrap: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md, height: 52 },
   input: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.lg, height: "100%" },
+  inputWrapMultiline: { height: undefined, minHeight: 120, alignItems: "flex-start", paddingVertical: SPACING.sm },
+  inputMultiline: { height: undefined, minHeight: 108, textAlignVertical: "top" },
 });

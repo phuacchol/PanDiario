@@ -6,6 +6,7 @@ import { TopBar } from "@/src/components/TopBar";
 import { EmptyState } from "@/src/components/Mascot";
 import { Button, Field, ChipRow, Segmented } from "@/src/components/ui";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
+import { TimePickerModal } from "@/src/components/TimePickerModal";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type Note } from "@/src/context/DataContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
@@ -31,6 +32,7 @@ export default function NotaScreen() {
   const [minute, setMinute] = useState("00");
   const [leadMinutes, setLeadMinutes] = useState("15");
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   const query = search.trim().toLowerCase();
 
@@ -201,7 +203,7 @@ export default function NotaScreen() {
               ) : null}
 
               <Field label="Asunto" placeholder="Título breve" value={subject} onChangeText={setSubject} testID="nota-subject-input" />
-              <Field label="Texto" placeholder="Detalle..." multiline value={text} onChangeText={setText} testID="nota-text-input" />
+              <Field label="Texto" placeholder="Detalle..." multiline numberOfLines={4} value={text} onChangeText={setText} testID="nota-text-input" />
 
               {kind === "recordatorio" ? (
                 <View style={{ gap: SPACING.sm }}>
@@ -214,10 +216,14 @@ export default function NotaScreen() {
                     <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{date ? formatLocalDate(date, { withYear: true }) : "Elegir fecha"}</Text>
                   </Pressable>
 
-                  <View style={{ flexDirection: "row", gap: SPACING.sm }}>
-                    <Field label="Hora" keyboardType="number-pad" value={hour} onChangeText={setHour} containerStyle={{ flex: 1 }} testID="nota-hour-input" />
-                    <Field label="Minuto" keyboardType="number-pad" value={minute} onChangeText={setMinute} containerStyle={{ flex: 1 }} testID="nota-minute-input" />
-                  </View>
+                  <Pressable
+                    style={[styles.dateBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}
+                    onPress={() => setShowTimePicker(true)}
+                    testID="nota-time-button"
+                  >
+                    <Feather name="clock" size={16} color={colors.onSurfaceTertiary} />
+                    <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{`${hour}:${minute}`}</Text>
+                  </Pressable>
 
                   <View style={{ gap: SPACING.xs }}>
                     <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Avisar con anticipación</Text>
@@ -242,6 +248,20 @@ export default function NotaScreen() {
           setShowDatePicker(false);
         }}
         onRequestClose={() => setShowDatePicker(false)}
+      />
+
+      <TimePickerModal
+        visible={showTimePicker}
+        initialHour={parseInt(hour, 10) || 0}
+        initialMinute={parseInt(minute, 10) || 0}
+        colors={colors}
+        title="Hora del recordatorio"
+        onSelect={(h, m) => {
+          setHour(String(h).padStart(2, "0"));
+          setMinute(String(m).padStart(2, "0"));
+          setShowTimePicker(false);
+        }}
+        onRequestClose={() => setShowTimePicker(false)}
       />
     </View>
   );

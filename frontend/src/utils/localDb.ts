@@ -74,6 +74,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         kind TEXT NOT NULL,
         amount REAL NOT NULL,
         method TEXT,
+        cash_amount REAL,
         category TEXT,
         origin TEXT DEFAULT 'cuenta',
         note TEXT,
@@ -161,6 +162,9 @@ async function initDb(db: SQLite.SQLiteDatabase) {
     } catch {}
     try {
       await db.runAsync(`ALTER TABLE transactions ADD COLUMN origin TEXT DEFAULT 'cuenta';`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE transactions ADD COLUMN cash_amount REAL;`);
     } catch {}
   } catch (err) {
     console.warn("Fallo en execAsync de creación de tablas SQLite:", err);

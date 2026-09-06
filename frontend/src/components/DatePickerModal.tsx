@@ -69,7 +69,7 @@ export function DatePickerModal({
         <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={[styles.section, { color: colors.onSurface }]}>{title}</Text>
-            <Pressable onPress={onRequestClose} hitSlop={8}>
+            <Pressable onPress={onRequestClose} hitSlop={8} testID="date-picker-close">
               <Feather name="x" size={20} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
@@ -158,6 +158,7 @@ export function DatePickerModal({
                 <Pressable
                   key={`day-${dayNum}`}
                   onPress={() => onSelect(cellStr)}
+                  testID={`date-picker-day-${cellStr}`}
                   style={[
                     styles.dayCell,
                     isSelected && { backgroundColor: colors.brand, borderRadius: RADIUS.sm },

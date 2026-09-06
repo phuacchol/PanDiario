@@ -5,37 +5,32 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { Segmented } from "@/src/components/ui";
 import { useTheme } from "@/src/theme/ThemeContext";
-import { useData, type BudgetType } from "@/src/context/DataContext";
+import { useData } from "@/src/context/DataContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 
-// Gestión directa de categorías (Ajustes > Categorías): un solo nivel,
-// sin subcategorías. Las mismas categorías se usan para clasificar
-// Ingresos, Gastos, Notas y Listas en toda la app.
+type CategoryTab = "ingreso" | "gasto";
+
+// Gestión directa de categorías (Ajustes > Categorías): agrupadas por
+// Ingreso o Gasto -la misma clasificación que usa el autocompletado de
+// esas dos pantallas-, sin montos ni edición: solo nombre y papelera.
+// Los cupos (Vital/Secundario) se administran aparte, en la Calculadora
+// de Presupuesto.
 export default function CategoriesScreen() {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { budgetCategories, addBudgetCategory, updateBudgetCategoryAmount, updateBudgetCategoryName, deleteBudgetCategory } = useData();
+  const { budgetCategories, addBudgetCategory, deleteBudgetCategory } = useData();
 
-  const [tab, setTab] = useState<BudgetType>("vital");
+  const [tab, setTab] = useState<CategoryTab>("ingreso");
   const [newName, setNewName] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
 
-  const filtered = budgetCategories.filter((c) => c.type === tab);
+  const filtered = budgetCategories.filter((c) => (tab === "ingreso" ? c.type === "ingreso" : c.type === "vital" || c.type === "secundario"));
 
   const handleAdd = () => {
     const name = newName.trim();
     if (!name) return;
-    addBudgetCategory({ type: tab, name, amount: 0 });
+    addBudgetCategory({ type: tab === "ingreso" ? "ingreso" : "vital", name, amount: 0 });
     setNewName("");
-  };
-
-  const commitAmount = (id: string) => {
-    const raw = drafts[id];
-    if (raw === undefined) return;
-    updateBudgetCategoryAmount(id, parseFloat(raw.replace(",", ".")) || 0);
   };
 
   return (
@@ -52,11 +47,11 @@ export default function CategoriesScreen() {
         <Segmented
           testID="categories-tabs"
           options={[
-            { key: "vital", label: "Vital" },
-            { key: "secundario", label: "Secundario" },
+            { key: "ingreso", label: "Ingreso" },
+            { key: "gasto", label: "Gasto" },
           ]}
           value={tab}
-          onChange={(k) => setTab(k as BudgetType)}
+          onChange={(k) => setTab(k as CategoryTab)}
         />
 
         <View style={[styles.addRow, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
@@ -81,61 +76,14 @@ export default function CategoriesScreen() {
         contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.sm }}
         ListEmptyComponent={
           <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, textAlign: "center", paddingVertical: SPACING.xl }}>
-            Sin categorías {tab === "vital" ? "vitales" : "secundarias"} todavía.
+            Sin categorías de {tab === "ingreso" ? "ingreso" : "gasto"} todavía.
           </Text>
         }
         renderItem={({ item }) => (
           <View style={[styles.row, { backgroundColor: colors.surfaceSecondary }]}>
-            {editingId === item.id ? (
-              <TextInput
-                value={editingName}
-                onChangeText={setEditingName}
-                autoFocus
-                style={[styles.editInput, { color: colors.onSurface, borderColor: colors.border }]}
-                onSubmitEditing={() => {
-                  // La app usa el nombre como clave de clasificación; renombrar
-                  // solo actualiza esta fila (las transacciones ya guardadas
-                  // conservan el nombre anterior como texto libre).
-                  updateBudgetCategoryName(item.id, editingName);
-                  setEditingId(null);
-                }}
-                onBlur={() => {
-                  if (editingId === item.id) {
-                    updateBudgetCategoryName(item.id, editingName);
-                    setEditingId(null);
-                  }
-                }}
-                testID={`categories-edit-name-${item.id}`}
-              />
-            ) : (
-              <Text style={[styles.rowName, { color: colors.onSurface }]} numberOfLines={1}>
-                {item.name}
-              </Text>
-            )}
-
-            <View style={[styles.amountWrap, { backgroundColor: colors.surfaceTertiary }]}>
-              <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm }}>S/</Text>
-              <TextInput
-                defaultValue={String(item.amount)}
-                keyboardType="decimal-pad"
-                style={[styles.amountInput, { color: colors.onSurface }]}
-                onChangeText={(v) => setDrafts((d) => ({ ...d, [item.id]: v }))}
-                onBlur={() => commitAmount(item.id)}
-                onSubmitEditing={() => commitAmount(item.id)}
-                testID={`categories-amount-${item.id}`}
-              />
-            </View>
-
-            <Pressable
-              onPress={() => {
-                setEditingId(item.id === editingId ? null : item.id);
-                setEditingName(item.name);
-              }}
-              hitSlop={8}
-              testID={`categories-edit-${item.id}`}
-            >
-              <Feather name="edit-2" size={17} color={colors.onSurfaceTertiary} />
-            </Pressable>
+            <Text style={[styles.rowName, { color: colors.onSurface }]} numberOfLines={1}>
+              {item.name}
+            </Text>
             <Pressable onPress={() => deleteBudgetCategory(item.id)} hitSlop={8} testID={`categories-delete-${item.id}`}>
               <Feather name="trash-2" size={18} color={colors.error} />
             </Pressable>
@@ -155,7 +103,4 @@ const styles = StyleSheet.create({
   addBtn: { width: 36, height: 36, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
   row: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADIUS.md },
   rowName: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base },
-  editInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, borderBottomWidth: 1, paddingVertical: 2 },
-  amountWrap: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, height: 36, width: 100 },
-  amountInput: { flex: 1, fontFamily: FONTS.bold, fontSize: FONT_SIZE.base, textAlign: "right" },
 });
