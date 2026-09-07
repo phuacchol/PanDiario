@@ -1,5 +1,6 @@
 package __PACKAGE__.overlay
 
+import android.animation.ValueAnimator
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -36,14 +37,25 @@ import kotlin.math.abs
 
 // Burbuja flotante fuera de la app (overlay, estilo "call-head" de
 // Messenger). Ícono: pan_burbuja (o pan_avatar de respaldo), recortado en
-// círculo. Al tocarla despliega una tarjeta con 3 accesos (Lista activa,
-// Nueva nota, Calculadora) + una barra inferior de micrófono a ancho
-// completo. Si hay una lista "en ejecución" (Play presionado desde la
-// app), "Lista activa" abre un segundo panel flotante -checklist +
-// liquidación- que lee/escribe la misma base SQLite de la app sin
-// necesidad de traerla al frente. El micrófono deep-linkea a /voice -el
-// reconocimiento de voz en sí ya vive ahí, con push-to-talk real dentro de
-// la app-.
+// círculo. Al arrastrarla aparece una zona de cierre (X) abajo-centro:
+// soltarla ahí destruye el servicio; soltarla en cualquier otro punto la
+// pega magnéticamente al borde lateral más cercano. Un toque simple
+// alterna un menú (Ingreso/Gasto/Notas/Listas/Hablar) anclado junto a la
+// burbuja sin taparla nunca.
+//
+// Ingreso, Gasto, Nota y Lista nueva se renderizan como ventanas
+// WindowManager centradas y dibujadas por este mismo Service -nunca como
+// una Activity de la app-: el fondo real (home u otra app) sigue visible
+// detrás, sin ninguna pantalla de PanDiario de por medio. Si hay una
+// lista "en ejecución" (Play presionado desde la app), "Listas" abre ese
+// mismo tipo de ventana centrada con su checklist + liquidación en vez
+// del formulario de creación.
+//
+// Única excepción: "Hablar" sigue abriendo voice.tsx dentro de la app (vía
+// el alias de diálogo flotante) porque el reconocimiento de voz real
+// -captura de audio, transcripción, el parser de comandos en español de
+// financeVoice.ts- vive del lado de React Native; portar todo eso a
+// Kotlin queda fuera de alcance por ahora.
 class OverlayBubbleService : Service() {
 
   companion object {
@@ -73,6 +85,29 @@ class OverlayBubbleService : Service() {
   // alterna abrirlo/cerrarlo.
   private var menuView: View? = null
   private var menuOpen = false
+
+  // Zona de cierre (X) mostrada solo mientras se arrastra la burbuja.
+  private var dismissZoneView: View? = null
+  private var dismissActive = false
+
+  // Estado de los paneles nativos centrados de Ingreso/Gasto/Nota/Lista
+  // nueva -un único juego de campos genéricos reutilizado por los 4,
+  // discriminado por genKind, igual de simple que el patrón exec* del
+  // panel de ejecución de lista de abajo-.
+  private var genKind: String? = null // "ingreso" | "gasto" | "nota" | "lista_new"
+  private var genAmount = ""
+  private var genMethod = "efectivo"
+  private var genCashAmount = ""
+  private var genOrigin = "vital"
+  private var genCategory = ""
+  private var genNote = ""
+  private var genSubject = ""
+  private var genText = ""
+  private var genTitle = ""
+  private val genDraftItems = mutableListOf<String>()
+  private var genNewItemText = ""
+  @Volatile
+  private var genSubmitting = false
 
   // Estado del panel de ejecución de lista (se reconstruye la vista
   // completa en cada cambio; es más simple y confiable en Views nativas
@@ -239,6 +274,7 @@ class OverlayBubbleService : Service() {
 
   private fun collapseToBubble() {
     closeMenu()
+    hideDismissZone()
     execListId = null
     execEditing = false
     execShowFinish = false
@@ -248,6 +284,8 @@ class OverlayBubbleService : Service() {
     execNote = ""
     execNewItemText = ""
     execSubmitting = false
+    genKind = null
+    genSubmitting = false
     removeCurrentView()
     showCollapsedBubble()
   }
@@ -327,16 +365,16 @@ class OverlayBubbleService : Service() {
 
     val inProgress = try { PanDb.getInProgressList(this) } catch (_: Exception) { null }
 
-    root.addView(menuRow("💰", "Ingresos", null) { openApp("ingreso", floating = true) })
-    root.addView(menuRow("💸", "Gastos", null) { openApp("gasto", floating = true) })
-    root.addView(menuRow("📝", "Notas", null) { openApp("nota", floating = true) })
+    root.addView(menuRow("💰", "Ingreso", null) { openGenericPanel("ingreso") })
+    root.addView(menuRow("💸", "Gasto", null) { openGenericPanel("gasto") })
+    root.addView(menuRow("📝", "Notas", null) { openGenericPanel("nota") })
     root.addView(
       menuRow(
         "📋",
         "Listas",
         inProgress?.let { "En curso: ${it.title}" },
       ) {
-        if (inProgress != null) openListExecutionPanel(inProgress.id) else openApp("lista", floating = true)
+        if (inProgress != null) openListExecutionPanel(inProgress.id) else openGenericPanel("lista_new")
       }
     )
 
@@ -423,13 +461,14 @@ class OverlayBubbleService : Service() {
     return row
   }
 
-  // floating=true lanza la misma pantalla React Native (ingreso.tsx,
-  // gasto.tsx, nota.tsx, lista.tsx, voice.tsx vía app/quick/[action].tsx)
-  // a través del alias de MainActivity con tema de diálogo flotante
-  // (Theme.PanDiario.FloatingDialog, ver withOverlayBubble.js): se ve como
-  // una tarjeta superpuesta sobre lo que esté en pantalla, sin tomarla por
-  // completo. La burbuja y su menú solo se cierran -nunca se reconstruyen-
-  // porque la ventana flotante se dibuja encima, no en su lugar.
+  // Único uso restante: "voice" (Hablar) -ver el comentario de cabecera
+  // del archivo sobre por qué el reconocimiento de voz sigue viviendo en
+  // la app-. floating=true lanza voice.tsx (vía app/quick/[action].tsx) a
+  // través del alias de MainActivity con tema de diálogo flotante
+  // (Theme.PanDiario.FloatingDialog, ver withOverlayBubble.js) en vez de a
+  // pantalla completa. La burbuja y su menú solo se cierran -nunca se
+  // reconstruyen- porque la ventana flotante se dibuja encima, no en su
+  // lugar.
   private fun openApp(action: String, floating: Boolean = false) {
     closeMenu()
     val uri = Uri.parse("pandiario://quick/$action")
@@ -445,6 +484,393 @@ class OverlayBubbleService : Service() {
     try {
       startActivity(intent)
     } catch (_: Exception) {
+    }
+  }
+
+  // -------------------------------------------------------------------
+  // Paneles nativos centrados de Ingreso/Gasto/Nota/Lista nueva: cada uno
+  // es una ventana WindowManager propia (Gravity.CENTER, PixelFormat
+  // TRANSLUCENT, sin backdrop opaco) dibujada por este Service -jamás una
+  // Activity-, así que lo que sea que esté detrás -home, otra app- sigue
+  // completamente visible alrededor de la tarjeta. Guardar/Crear
+  // desmonta la ventana de inmediato y vuelve a la burbuja.
+  // -------------------------------------------------------------------
+
+  private fun openGenericPanel(kind: String) {
+    closeMenu()
+    genKind = kind
+    genAmount = ""
+    genMethod = "efectivo"
+    genCashAmount = ""
+    genOrigin = "vital"
+    genCategory = ""
+    genNote = ""
+    genSubject = ""
+    genText = ""
+    genTitle = ""
+    genDraftItems.clear()
+    genNewItemText = ""
+    genSubmitting = false
+    renderGenericPanel()
+  }
+
+  private fun renderGenericPanel() {
+    val kind = genKind ?: return collapseToBubble()
+    val view = buildGenericPanelView(kind)
+    val lp = WindowManager.LayoutParams(
+      dp(300),
+      WindowManager.LayoutParams.WRAP_CONTENT,
+      overlayType(),
+      0,
+      PixelFormat.TRANSLUCENT
+    )
+    lp.gravity = Gravity.CENTER
+
+    removeCurrentView()
+    try {
+      windowManager?.addView(view, lp)
+      currentView = view
+      currentParams = lp
+    } catch (_: Exception) {
+    }
+  }
+
+  private fun genericPanelTitle(kind: String): String = when (kind) {
+    "ingreso" -> "NUEVO INGRESO"
+    "gasto" -> "NUEVO GASTO"
+    "nota" -> "NUEVA NOTA"
+    else -> "NUEVA LISTA"
+  }
+
+  private fun buildGenericPanelView(kind: String): View {
+    val root = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      setPadding(dp(16), dp(14), dp(16), dp(16))
+      background = GradientDrawable().apply {
+        cornerRadius = dp(20).toFloat()
+        setColor(Color.WHITE)
+      }
+    }
+
+    val header = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER_VERTICAL
+    }
+    header.addView(TextView(this).apply {
+      text = genericPanelTitle(kind)
+      setTextColor(Color.parseColor(COLOR_TEXT))
+      textSize = 15f
+      setTypeface(typeface, android.graphics.Typeface.BOLD)
+      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+    })
+    header.addView(TextView(this).apply {
+      text = "✕"
+      setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+      textSize = 16f
+      setPadding(dp(10), dp(4), dp(4), dp(4))
+      setOnClickListener { collapseToBubble() }
+    })
+    root.addView(header)
+    root.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+
+    val scroll = ScrollView(this).apply {
+      layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT, 0f)
+    }
+    val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    when (kind) {
+      "ingreso" -> buildIngresoFields(body)
+      "gasto" -> buildGastoFields(body)
+      "nota" -> buildNotaFields(body)
+      else -> buildListaNewFields(body)
+    }
+    scroll.addView(body)
+    root.addView(scroll)
+
+    root.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12)) })
+    val confirmLabel = if (genSubmitting) "Guardando..." else if (kind == "lista_new") "Crear" else "Guardar"
+    root.addView(actionButton(confirmLabel, COLOR_BRAND) { confirmGenericPanel(kind) })
+
+    return root
+  }
+
+  private fun buildIngresoFields(body: LinearLayout) {
+    body.addView(fieldLabel("Monto"))
+    body.addView(EditText(this).apply {
+      hint = "0.00"
+      setText(genAmount)
+      inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genAmount = it })
+    })
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
+    body.addView(segmentedRow(listOf("efectivo" to "Efectivo", "transferencia" to "Transferencia", "mixto" to "Mixto"), genMethod) {
+      genMethod = it
+      renderGenericPanel()
+    })
+    if (genMethod == "mixto") {
+      body.addView(fieldLabel("Efectivo recibido"))
+      body.addView(EditText(this).apply {
+        hint = "0.00"
+        setText(genCashAmount)
+        inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+        setPadding(dp(10), dp(8), dp(10), dp(8))
+        addTextChangedListener(simpleWatcher { genCashAmount = it })
+      })
+      val amt = genAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+      val cash = genCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+      val digital = if (amt - cash > 0) amt - cash else 0.0
+      body.addView(TextView(this).apply {
+        text = "Digital (calculado): S/ " + String.format(Locale.US, "%.2f", digital)
+        setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+        textSize = 12f
+        setPadding(0, dp(4), 0, 0)
+      })
+    }
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    body.addView(fieldLabel("Categoría"))
+    body.addView(EditText(this).apply {
+      hint = "Ej. Sueldo"
+      setText(genCategory)
+      setSingleLine(true)
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genCategory = it })
+    })
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    body.addView(fieldLabel("Nota (opcional)"))
+    body.addView(EditText(this).apply {
+      hint = "Detalle..."
+      setText(genNote)
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genNote = it })
+    })
+  }
+
+  private fun buildGastoFields(body: LinearLayout) {
+    body.addView(fieldLabel("Monto"))
+    body.addView(EditText(this).apply {
+      hint = "0.00"
+      setText(genAmount)
+      inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genAmount = it })
+    })
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
+    body.addView(segmentedRow(listOf("efectivo" to "Efectivo", "transferencia" to "Transferencia", "mixto" to "Mixto"), genMethod) {
+      genMethod = it
+      renderGenericPanel()
+    })
+    if (genMethod == "mixto") {
+      body.addView(fieldLabel("Efectivo pagado"))
+      body.addView(EditText(this).apply {
+        hint = "0.00"
+        setText(genCashAmount)
+        inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+        setPadding(dp(10), dp(8), dp(10), dp(8))
+        addTextChangedListener(simpleWatcher { genCashAmount = it })
+      })
+      val amt = genAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+      val cash = genCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+      val digital = if (amt - cash > 0) amt - cash else 0.0
+      body.addView(TextView(this).apply {
+        text = "Digital (calculado): S/ " + String.format(Locale.US, "%.2f", digital)
+        setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+        textSize = 12f
+        setPadding(0, dp(4), 0, 0)
+      })
+    }
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    body.addView(fieldLabel("Origen del dinero"))
+    body.addView(originGrid(genOrigin) {
+      genOrigin = it
+      renderGenericPanel()
+    })
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    body.addView(fieldLabel("Categoría"))
+    body.addView(EditText(this).apply {
+      hint = "Ej. Mercado"
+      setText(genCategory)
+      setSingleLine(true)
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genCategory = it })
+    })
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    body.addView(fieldLabel("Nota (opcional)"))
+    body.addView(EditText(this).apply {
+      hint = "Detalle..."
+      setText(genNote)
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genNote = it })
+    })
+  }
+
+  private fun buildNotaFields(body: LinearLayout) {
+    body.addView(fieldLabel("Asunto"))
+    body.addView(EditText(this).apply {
+      hint = "Título breve"
+      setText(genSubject)
+      setSingleLine(true)
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genSubject = it })
+    })
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    body.addView(fieldLabel("Texto"))
+    body.addView(EditText(this).apply {
+      hint = "Detalle..."
+      setText(genText)
+      minLines = 4
+      gravity = Gravity.TOP
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genText = it })
+    })
+  }
+
+  private fun buildListaNewFields(body: LinearLayout) {
+    body.addView(fieldLabel("Nombre"))
+    body.addView(EditText(this).apply {
+      hint = "Ej. Compras del súper"
+      setText(genTitle)
+      setSingleLine(true)
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { genTitle = it })
+    })
+    body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    body.addView(fieldLabel("Ítems"))
+
+    val addRow = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER_VERTICAL
+      setPadding(dp(4), dp(2), dp(4), dp(2))
+      background = GradientDrawable().apply {
+        cornerRadius = dp(10).toFloat()
+        setColor(Color.parseColor(COLOR_SURFACE_ALT))
+      }
+    }
+    addRow.addView(EditText(this).apply {
+      hint = "Ej. 5 panes"
+      setText(genNewItemText)
+      setSingleLine(true)
+      setBackgroundColor(Color.TRANSPARENT)
+      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+      addTextChangedListener(simpleWatcher { genNewItemText = it })
+    })
+    addRow.addView(TextView(this).apply {
+      text = "＋"
+      setTextColor(Color.WHITE)
+      textSize = 16f
+      setPadding(dp(10), dp(4), dp(10), dp(4))
+      background = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(Color.parseColor(COLOR_BRAND))
+      }
+      setOnClickListener {
+        val clean = genNewItemText.trim()
+        if (clean.isNotEmpty()) {
+          // Se antepone (arriba de la lista de borradores) para confirmar
+          // visualmente la adición, igual que en la app y en la lista en
+          // ejecución.
+          genDraftItems.add(0, clean)
+          genNewItemText = ""
+          renderGenericPanel()
+        }
+      }
+    })
+    body.addView(addRow)
+
+    for ((index, item) in genDraftItems.withIndex()) {
+      val row = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(4), dp(6), dp(4), dp(6))
+      }
+      row.addView(TextView(this).apply {
+        text = item
+        setTextColor(Color.parseColor(COLOR_TEXT))
+        textSize = 14f
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+      })
+      row.addView(TextView(this).apply {
+        text = "✕"
+        setTextColor(Color.parseColor(COLOR_ERROR))
+        textSize = 14f
+        setPadding(dp(10), dp(4), dp(4), dp(4))
+        setOnClickListener {
+          genDraftItems.removeAt(index)
+          renderGenericPanel()
+        }
+      })
+      body.addView(row)
+    }
+  }
+
+  // Bloqueo estricto contra doble pulsación, igual que confirmSettlement.
+  private fun confirmGenericPanel(kind: String) {
+    if (genSubmitting) return
+    when (kind) {
+      "ingreso" -> {
+        val amount = genAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+        if (amount <= 0) return
+        genSubmitting = true
+        renderGenericPanel()
+        val cash = if (genMethod == "mixto") genCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0 else null
+        val ok = try {
+          PanDb.addIncome(this, amount, genMethod, cash, genCategory.trim().ifEmpty { "Otros" }, genNote.trim().ifEmpty { null })
+        } catch (_: Exception) {
+          false
+        }
+        genSubmitting = false
+        if (ok) collapseToBubble() else renderGenericPanel()
+      }
+      "gasto" -> {
+        val amount = genAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+        if (amount <= 0) return
+        genSubmitting = true
+        renderGenericPanel()
+        val cash = if (genMethod == "mixto") genCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0 else null
+        val ok = try {
+          PanDb.addExpense(this, amount, genMethod, cash, genOrigin, genCategory.trim().ifEmpty { "Otros" }, genNote.trim().ifEmpty { null })
+        } catch (_: Exception) {
+          false
+        }
+        genSubmitting = false
+        if (ok) collapseToBubble() else renderGenericPanel()
+      }
+      "nota" -> {
+        val text = genText.trim()
+        if (text.isEmpty()) return
+        genSubmitting = true
+        renderGenericPanel()
+        val ok = try {
+          PanDb.addNote(this, genSubject.trim(), text)
+        } catch (_: Exception) {
+          false
+        }
+        genSubmitting = false
+        if (ok) collapseToBubble() else renderGenericPanel()
+      }
+      else -> {
+        val title = genTitle.trim()
+        if (title.isEmpty()) return
+        genSubmitting = true
+        renderGenericPanel()
+        val ok = try {
+          PanDb.createList(this, title, genDraftItems.toList()) != null
+        } catch (_: Exception) {
+          false
+        }
+        genSubmitting = false
+        if (ok) collapseToBubble() else renderGenericPanel()
+      }
     }
   }
 
@@ -906,12 +1332,18 @@ class OverlayBubbleService : Service() {
     }
   }
 
+  // Solo se usa para la burbuja. Arrastrar más allá del umbral muestra la
+  // zona de cierre (X) abajo-centro; soltar sobre ella destruye el
+  // servicio, soltar en cualquier otro punto pega la burbuja al borde
+  // lateral más cercano con una animación corta. Sin arrastre real, el
+  // toque se trata como click (alterna el menú).
   private fun attachDragAndClick(view: View, lp: WindowManager.LayoutParams, onClick: () -> Unit) {
     var initialX = 0
     var initialY = 0
     var initialTouchX = 0f
     var initialTouchY = 0f
     var moved = false
+    val bubbleSize = dp(56)
 
     view.setOnTouchListener { v, event ->
       when (event.action) {
@@ -926,21 +1358,138 @@ class OverlayBubbleService : Service() {
         MotionEvent.ACTION_MOVE -> {
           val dx = (event.rawX - initialTouchX).toInt()
           val dy = (event.rawY - initialTouchY).toInt()
-          if (abs(dx) > 8 || abs(dy) > 8) moved = true
+          if (abs(dx) > 8 || abs(dy) > 8) {
+            if (!moved) {
+              moved = true
+              if (menuOpen) closeMenu()
+              showDismissZone()
+            }
+          }
           lp.x = initialX + dx
           lp.y = initialY + dy
           try {
             windowManager?.updateViewLayout(v, lp)
           } catch (_: Exception) {
           }
+          if (moved) highlightDismissZone(isOverDismissZone(lp, bubbleSize))
           true
         }
         MotionEvent.ACTION_UP -> {
-          if (!moved) onClick()
+          if (!moved) {
+            onClick()
+          } else {
+            val overDismiss = isOverDismissZone(lp, bubbleSize)
+            hideDismissZone()
+            if (overDismiss) {
+              stopSelf()
+            } else {
+              snapToNearestEdge(v, lp)
+            }
+          }
+          true
+        }
+        MotionEvent.ACTION_CANCEL -> {
+          hideDismissZone()
           true
         }
         else -> false
       }
     }
+  }
+
+  // -------------------------------------------------------------------
+  // Zona de cierre (X) al arrastrar + imán de borde al soltar.
+  // -------------------------------------------------------------------
+
+  private fun dismissZoneRect(): android.graphics.Rect {
+    val screen = resources.displayMetrics
+    val size = dp(64)
+    val bottomMargin = dp(40)
+    val left = (screen.widthPixels - size) / 2
+    val top = screen.heightPixels - bottomMargin - size
+    return android.graphics.Rect(left, top, left + size, top + size)
+  }
+
+  private fun showDismissZone() {
+    if (dismissZoneView != null) return
+    val size = dp(64)
+    val zone = TextView(this).apply {
+      text = "✕"
+      gravity = Gravity.CENTER
+      setTextColor(Color.WHITE)
+      textSize = 22f
+      background = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(Color.argb(200, 40, 40, 40))
+      }
+    }
+    val lp = WindowManager.LayoutParams(
+      size,
+      size,
+      overlayType(),
+      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+      PixelFormat.TRANSLUCENT
+    )
+    lp.gravity = Gravity.TOP or Gravity.START
+    val rect = dismissZoneRect()
+    lp.x = rect.left
+    lp.y = rect.top
+    try {
+      windowManager?.addView(zone, lp)
+      dismissZoneView = zone
+      dismissActive = false
+    } catch (_: Exception) {
+    }
+  }
+
+  private fun highlightDismissZone(active: Boolean) {
+    if (active == dismissActive) return
+    dismissActive = active
+    val view = dismissZoneView ?: return
+    (view as? TextView)?.background = GradientDrawable().apply {
+      shape = GradientDrawable.OVAL
+      setColor(Color.parseColor(if (active) COLOR_ERROR else "#282828"))
+    }
+    view.scaleX = if (active) 1.25f else 1f
+    view.scaleY = if (active) 1.25f else 1f
+  }
+
+  private fun hideDismissZone() {
+    val view = dismissZoneView
+    if (view != null) {
+      try { windowManager?.removeView(view) } catch (_: Exception) {
+      }
+    }
+    dismissZoneView = null
+    dismissActive = false
+  }
+
+  private fun isOverDismissZone(bubbleLp: WindowManager.LayoutParams, bubbleSize: Int): Boolean {
+    val rect = dismissZoneRect()
+    // Margen de tolerancia generoso: basta con que el centro de la
+    // burbuja entre en la zona ampliada, no un solapamiento exacto de
+    // píxeles -más fácil de acertar arrastrando con el dedo-.
+    val margin = dp(24)
+    val expanded = android.graphics.Rect(rect.left - margin, rect.top - margin, rect.right + margin, rect.bottom + margin)
+    val centerX = bubbleLp.x + bubbleSize / 2
+    val centerY = bubbleLp.y + bubbleSize / 2
+    return expanded.contains(centerX, centerY)
+  }
+
+  private fun snapToNearestEdge(view: View, lp: WindowManager.LayoutParams) {
+    val screen = resources.displayMetrics
+    val bubbleSize = dp(56)
+    val centerX = lp.x + bubbleSize / 2
+    val targetX = if (centerX < screen.widthPixels / 2) 0 else screen.widthPixels - bubbleSize
+    val startX = lp.x
+    if (startX == targetX) return
+    val animator = ValueAnimator.ofInt(startX, targetX)
+    animator.duration = 220
+    animator.addUpdateListener { anim ->
+      lp.x = anim.animatedValue as Int
+      try { windowManager?.updateViewLayout(view, lp) } catch (_: Exception) {
+      }
+    }
+    animator.start()
   }
 }

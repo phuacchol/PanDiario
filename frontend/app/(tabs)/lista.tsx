@@ -25,6 +25,7 @@ export default function ListaScreen() {
   const [showNew, setShowNew] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [detailListId, setDetailListId] = useState<string | null>(null);
 
   const [newTitle, setNewTitle] = useState("");
   const [isProgrammed, setIsProgrammed] = useState(false);
@@ -67,6 +68,12 @@ export default function ListaScreen() {
 
   const activeList = lists.find((l) => l.id === activeListId) || null;
   const activeEntries = listEntries.filter((e) => e.list_id === activeListId);
+
+  // Detalle de solo lectura de una lista ya archivada: sin checkbox/editar/
+  // borrar, solo consulta -incluye los ítems tachados- con la fecha/hora
+  // de finalización.
+  const detailList = lists.find((l) => l.id === detailListId) || null;
+  const detailEntries = listEntries.filter((e) => e.list_id === detailListId);
 
   // Play es un alternador: toca para pasar a "en ejecución" (ícono verde,
   // bloqueada contra edición estructural) y toca de nuevo para volver a
@@ -299,7 +306,11 @@ export default function ListaScreen() {
                 </Text>
               }
               renderItem={({ item }) => (
-                <View style={[styles.card, { backgroundColor: colors.surfaceTertiary }]}>
+                <Pressable
+                  style={[styles.card, { backgroundColor: colors.surfaceTertiary }]}
+                  onPress={() => setDetailListId(item.id)}
+                  testID={`lista-history-open-${item.id}`}
+                >
                   <Feather name="check-circle" size={18} color={colors.success} />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
@@ -312,6 +323,55 @@ export default function ListaScreen() {
                       </Text>
                     ) : null}
                   </View>
+                  <Feather name="chevron-right" size={18} color={colors.onSurfaceTertiary} />
+                </Pressable>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!detailListId} transparent animationType="slide" onRequestClose={() => setDetailListId(null)}>
+        <View style={styles.backdrop}>
+          <View style={[styles.newCard, { backgroundColor: colors.surfaceSecondary, maxHeight: "80%" }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
+                  {detailList?.list_code ? `#${detailList.list_code} · ` : ""}
+                  {detailList?.title}
+                </Text>
+                {detailList?.completed_at ? (
+                  <Text style={[styles.cardMeta, { color: colors.onSurfaceTertiary }]}>
+                    Finalizada el {formatLocalDate(detailList.completed_at)} · {formatLocalTime(detailList.completed_at)}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable onPress={() => setDetailListId(null)} hitSlop={8} testID="lista-detail-close">
+                <Feather name="x" size={22} color={colors.onSurfaceTertiary} />
+              </Pressable>
+            </View>
+            <FlatList
+              data={detailEntries}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ gap: SPACING.sm, paddingTop: SPACING.md }}
+              ListEmptyComponent={
+                <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, textAlign: "center", paddingVertical: SPACING.lg }}>
+                  Esta lista no tiene ítems.
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <View style={[styles.draftItemRow, { backgroundColor: colors.surfaceTertiary }]} testID={`lista-detail-entry-${item.id}`}>
+                  <Feather name={item.done ? "check-circle" : "circle"} size={18} color={item.done ? colors.success : colors.onSurfaceTertiary} />
+                  <Text
+                    style={{
+                      flex: 1,
+                      color: item.extra ? colors.accent : colors.onSurface,
+                      fontFamily: FONTS.medium,
+                      textDecorationLine: item.done ? "line-through" : "none",
+                    }}
+                  >
+                    {item.text}
+                  </Text>
                 </View>
               )}
             />

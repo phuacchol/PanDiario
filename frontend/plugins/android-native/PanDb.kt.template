@@ -150,14 +150,74 @@ object PanDb {
     }
   }
 
+  // Aplica el efecto de una transacción sobre Cartera/Caja Chica/Ahorro
+  // (con soporte Mixto) y sobre el cupo de Presupuesto si el origen es
+  // 'vital'/'secundario' -replica exactamente applyTxEffect de
+  // src/context/DataContext.tsx-. Compartido por finalizePurchase,
+  // addIncome y addExpense para no repetir esta lógica en cada punto de
+  // escritura nativo. Debe llamarse dentro de una transacción ya abierta
+  // por el caller (db.beginTransaction()/setTransactionSuccessful()).
+  private fun applyWalletEffect(db: SQLiteDatabase, kind: String, amount: Double, method: String, cashAmount: Double?, origin: String, category: String) {
+    db.rawQuery("SELECT cartera_efectivo, cartera_digital, caja_chica, ahorro FROM wallet WHERE id = 'main'", null).use { c ->
+      if (c.moveToFirst()) {
+        var carteraEfectivo = c.getDouble(0)
+        var carteraDigital = c.getDouble(1)
+        var cajaChica = c.getDouble(2)
+        var ahorro = c.getDouble(3)
+        val sign = if (kind == "ingreso") 1.0 else -1.0
+        val delta = sign * amount
+
+        when {
+          origin == "caja_chica" -> cajaChica += delta
+          origin == "ahorro" -> ahorro += delta
+          method == "mixto" -> {
+            val cash = min(max(cashAmount ?: 0.0, 0.0), amount)
+            val digital = amount - cash
+            carteraEfectivo += sign * cash
+            carteraDigital += sign * digital
+          }
+          method == "efectivo" -> carteraEfectivo += delta
+          else -> carteraDigital += delta
+        }
+
+        db.execSQL(
+          "UPDATE wallet SET cartera_efectivo = ?, cartera_digital = ?, caja_chica = ?, ahorro = ? WHERE id = 'main'",
+          arrayOf(carteraEfectivo, carteraDigital, cajaChica, ahorro)
+        )
+
+        // Los ingresos siempre usan origin='cuenta' (ver addIncome), así
+        // que esta rama solo se ejercita para gastos con cupo asignado.
+        if (origin == "vital" || origin == "secundario") {
+          db.rawQuery("SELECT id, amount FROM budget_categories WHERE type = ? AND name = ?", arrayOf(origin, category)).use { c2 ->
+            if (c2.moveToFirst()) {
+              val catId = c2.getString(0)
+              val nextAmount = c2.getDouble(1) + delta
+              db.execSQL("UPDATE budget_categories SET amount = ? WHERE id = ?", arrayOf(nextAmount, catId))
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Crea la categoría si el nombre dictado/tecleado no existe todavía
+  // -mismo auto-alta que "+ Añadir categoría" en Ingreso/Gasto/Presupuesto
+  // de la app-. No-op silencioso si ya existe para ese type.
+  private fun ensureCategory(db: SQLiteDatabase, type: String, name: String) {
+    if (name.isBlank()) return
+    db.rawQuery("SELECT id FROM budget_categories WHERE type = ? AND name = ?", arrayOf(type, name)).use { c ->
+      if (c.moveToFirst()) return
+    }
+    db.execSQL(
+      "INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, ?, ?, 0, ?)",
+      arrayOf(newId("cat"), type, name, isoNow())
+    )
+  }
+
   // Liquida la compra: inserta el gasto "Lista de compras", aplica su
-  // efecto sobre Cartera/Caja Chica/Ahorro (con soporte Mixto) y sobre el
-  // cupo de Presupuesto si el origen es 'vital'/'secundario', y archiva la
-  // lista como 'done'. Replica exactamente applyTxEffect + completeList de
-  // src/context/DataContext.tsx para que el saldo quede consistente sin
-  // importar si el gasto se registró desde la app o desde este panel
-  // nativo. Todo ocurre dentro de una transacción SQLite: o se aplica
-  // completo, o no se aplica nada (nunca deja al wallet a medio actualizar).
+  // efecto sobre wallet/presupuesto y archiva la lista como 'done'.
+  // Todo ocurre dentro de una transacción SQLite: o se aplica completo, o
+  // no se aplica nada (nunca deja al wallet a medio actualizar).
   fun finalizePurchase(
     context: Context,
     listId: String,
@@ -172,54 +232,14 @@ object PanDb {
     val db = open(context) ?: return false
     try {
       db.beginTransaction()
-
       val txId = newId("tx")
       val now = isoNow()
       db.execSQL(
         "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?)",
         arrayOf(txId, amount, method, cashAmount, category, origin, note, now, cycleId)
       )
-
-      db.rawQuery("SELECT cartera_efectivo, cartera_digital, caja_chica, ahorro FROM wallet WHERE id = 'main'", null).use { c ->
-        if (c.moveToFirst()) {
-          var carteraEfectivo = c.getDouble(0)
-          var carteraDigital = c.getDouble(1)
-          var cajaChica = c.getDouble(2)
-          var ahorro = c.getDouble(3)
-          val delta = -amount // gasto: siempre resta.
-
-          when {
-            origin == "caja_chica" -> cajaChica += delta
-            origin == "ahorro" -> ahorro += delta
-            method == "mixto" -> {
-              val cash = min(max(cashAmount ?: 0.0, 0.0), amount)
-              val digital = amount - cash
-              carteraEfectivo -= cash
-              carteraDigital -= digital
-            }
-            method == "efectivo" -> carteraEfectivo += delta
-            else -> carteraDigital += delta
-          }
-
-          db.execSQL(
-            "UPDATE wallet SET cartera_efectivo = ?, cartera_digital = ?, caja_chica = ?, ahorro = ? WHERE id = 'main'",
-            arrayOf(carteraEfectivo, carteraDigital, cajaChica, ahorro)
-          )
-
-          if (origin == "vital" || origin == "secundario") {
-            db.rawQuery("SELECT id, amount FROM budget_categories WHERE type = ? AND name = ?", arrayOf(origin, category)).use { c2 ->
-              if (c2.moveToFirst()) {
-                val catId = c2.getString(0)
-                val nextAmount = c2.getDouble(1) + delta
-                db.execSQL("UPDATE budget_categories SET amount = ? WHERE id = ?", arrayOf(nextAmount, catId))
-              }
-            }
-          }
-        }
-      }
-
+      applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, category)
       db.execSQL("UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?", arrayOf(now, listId))
-
       db.setTransactionSuccessful()
       return true
     } catch (_: Exception) {
@@ -244,6 +264,121 @@ object PanDb {
     } catch (_: Exception) {
       return false
     } finally {
+      db.close()
+    }
+  }
+
+  // Ventana nativa "Nuevo Ingreso" del menú de la burbuja. Los ingresos
+  // siempre se acreditan a origin='cuenta' -igual que addIncome en
+  // DataContext.tsx-, nunca afectan un cupo de Presupuesto.
+  fun addIncome(context: Context, amount: Double, method: String, cashAmount: Double?, category: String, note: String?): Boolean {
+    val cycleId = getOpenCycleId(context) ?: return false
+    val db = open(context) ?: return false
+    try {
+      db.beginTransaction()
+      val cleanCategory = category.trim().ifEmpty { "Otros" }
+      ensureCategory(db, "ingreso", cleanCategory)
+      db.execSQL(
+        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, 'cuenta', ?, ?, ?)",
+        arrayOf(newId("tx"), amount, method, cashAmount, cleanCategory, note, isoNow(), cycleId)
+      )
+      applyWalletEffect(db, "ingreso", amount, method, cashAmount, "cuenta", cleanCategory)
+      db.setTransactionSuccessful()
+      return true
+    } catch (_: Exception) {
+      return false
+    } finally {
+      try { db.endTransaction() } catch (_: Exception) {
+      }
+      db.close()
+    }
+  }
+
+  // Ventana nativa "Nuevo Gasto" del menú de la burbuja. La categoría se
+  // crea con type='vital' (por defecto) o 'secundario'/'ingreso' según el
+  // origen elegido, igual que gasto.tsx.
+  fun addExpense(context: Context, amount: Double, method: String, cashAmount: Double?, origin: String, category: String, note: String?): Boolean {
+    val cycleId = getOpenCycleId(context) ?: return false
+    val db = open(context) ?: return false
+    try {
+      db.beginTransaction()
+      val cleanCategory = category.trim().ifEmpty { "Otros" }
+      val categoryType = if (origin == "secundario") "secundario" else "vital"
+      ensureCategory(db, categoryType, cleanCategory)
+      db.execSQL(
+        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?)",
+        arrayOf(newId("tx"), amount, method, cashAmount, cleanCategory, origin, note, isoNow(), cycleId)
+      )
+      applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, cleanCategory)
+      db.setTransactionSuccessful()
+      return true
+    } catch (_: Exception) {
+      return false
+    } finally {
+      try { db.endTransaction() } catch (_: Exception) {
+      }
+      db.close()
+    }
+  }
+
+  // Ventana nativa "Nueva Nota" del menú de la burbuja: nota simple, sin
+  // recordatorio -el selector de hora estricto solo existe en la app-.
+  fun addNote(context: Context, subject: String, text: String): Boolean {
+    val db = open(context) ?: return false
+    try {
+      db.execSQL(
+        "INSERT INTO notes (id, subject, text, pinned, is_reminder, remind_at, lead_minutes, notification_id, done, completed_at, created_at) VALUES (?, ?, ?, 0, 0, NULL, 15, NULL, 0, NULL, ?)",
+        arrayOf(newId("note"), subject.trim(), text.trim(), isoNow())
+      )
+      return true
+    } catch (_: Exception) {
+      return false
+    } finally {
+      db.close()
+    }
+  }
+
+  // Ventana nativa "Nueva Lista" del menú de la burbuja (solo cuando no
+  // hay ninguna lista en ejecución). Calcula el siguiente código
+  // secuencial #L-00X igual que addList en DataContext.tsx -sobre el
+  // mayor número ya usado, no sobre COUNT(*), para no repetir un código
+  // ya mostrado tras un borrado- e inserta los ítems base (extra=0) del
+  // constructor. Devuelve el id de la lista creada, o null si falló.
+  fun createList(context: Context, title: String, items: List<String>): String? {
+    val db = open(context) ?: return null
+    try {
+      db.beginTransaction()
+      var maxSeq = 0
+      db.rawQuery("SELECT list_code FROM lists", null).use { c ->
+        while (c.moveToNext()) {
+          val code = c.getString(0) ?: continue
+          val m = Regex("^L-(\\d+)$").find(code) ?: continue
+          val n = m.groupValues[1].toIntOrNull() ?: continue
+          if (n > maxSeq) maxSeq = n
+        }
+      }
+      val listCode = "L-" + (maxSeq + 1).toString().padStart(3, '0')
+      val id = newId("list")
+      val now = isoNow()
+      db.execSQL(
+        "INSERT INTO lists (id, list_code, title, category, is_programmed, scheduled_at, lead_minutes, notification_id, status, created_at, cycle_id) VALUES (?, ?, ?, NULL, 0, NULL, 15, NULL, 'active', ?, ?)",
+        arrayOf(id, listCode, title.trim(), now, getOpenCycleId(context))
+      )
+      for (item in items) {
+        val clean = item.trim()
+        if (clean.isEmpty()) continue
+        db.execSQL(
+          "INSERT INTO list_entries (id, list_id, text, done, extra, created_at) VALUES (?, ?, ?, 0, 0, ?)",
+          arrayOf(newId("entry"), id, clean, isoNow())
+        )
+      }
+      db.setTransactionSuccessful()
+      return id
+    } catch (_: Exception) {
+      return null
+    } finally {
+      try { db.endTransaction() } catch (_: Exception) {
+      }
       db.close()
     }
   }
