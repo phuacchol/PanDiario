@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tema de las "ventanas flotantes estilo diálogo" que la burbuja usa para
+  Ingresos/Gastos/Notas/Lista nueva/Hablar: reutiliza las pantallas React
+  Native ya existentes (ingreso.tsx, gasto.tsx, nota.tsx, lista.tsx,
+  voice.tsx) dentro de un alias de MainActivity con este tema, en vez de
+  reescribirlas en Kotlin. Extiende un tema de AppCompat "Dialog" real y
+  estable (siempre presente: RN/Expo dependen de androidx.appcompat), así
+  que no depende de adivinar el nombre exacto del tema que Expo genera
+  para la Activity principal -evita romper el resto del build si ese
+  nombre cambia entre versiones-.
+-->
+<resources>
+  <style name="Theme.PanDiario.FloatingDialog" parent="Theme.AppCompat.Light.Dialog.NoActionBar">
+    <item name="android:windowIsFloating">true</item>
+    <item name="android:windowMinWidthMajor">92%</item>
+    <item name="android:windowMinWidthMinor">92%</item>
+    <item name="android:backgroundDimEnabled">true</item>
+    <item name="android:backgroundDimAmount">0.45</item>
+    <item name="android:windowSoftInputMode">adjustResize</item>
+  </style>
+</resources>

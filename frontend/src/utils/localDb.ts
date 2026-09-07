@@ -122,6 +122,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
       -- en el Historial de Listas).
       CREATE TABLE IF NOT EXISTS lists (
         id TEXT PRIMARY KEY,
+        list_code TEXT,
         title TEXT NOT NULL,
         category TEXT,
         is_programmed INTEGER DEFAULT 0,
@@ -175,6 +176,9 @@ async function initDb(db: SQLite.SQLiteDatabase) {
     } catch {}
     try {
       await db.runAsync(`ALTER TABLE lists ADD COLUMN completed_at TEXT;`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE lists ADD COLUMN list_code TEXT;`);
     } catch {}
   } catch (err) {
     console.warn("Fallo en execAsync de creación de tablas SQLite:", err);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Modal, Pressable, TextInput } from "react-native";
+import { View, Text, StyleSheet, Modal, Pressable, TextInput, ScrollView, Switch, KeyboardAvoidingView, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { Button, Field, Segmented } from "@/src/components/ui";
@@ -30,13 +30,14 @@ export function CompraOverlayModal({
   onToggleEntry: (id: string) => void;
   onAddEntry: (text: string, extra: boolean) => void;
   onDeleteEntry: (id: string) => void;
-  onComplete: (p: { amount: number; method: Method; cashAmount?: number; origin: Origin; note?: string }) => void;
+  onComplete: (p: { registerExpense: boolean; amount?: number; method?: Method; cashAmount?: number; origin?: Origin; note?: string }) => void;
   onClose: () => void;
 }) {
   const { colors } = useTheme();
   const [editing, setEditing] = useState(false);
   const [newItem, setNewItem] = useState("");
   const [showFinish, setShowFinish] = useState(false);
+  const [registerExpense, setRegisterExpense] = useState(true);
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<Method>("efectivo");
   const [cashAmount, setCashAmount] = useState("");
@@ -52,6 +53,7 @@ export function CompraOverlayModal({
       setEditing(false);
       setNewItem("");
       setShowFinish(false);
+      setRegisterExpense(true);
       setAmount("");
       setMethod("efectivo");
       setCashAmount("");
@@ -81,13 +83,20 @@ export function CompraOverlayModal({
     // Bloqueo estricto contra doble pulsación: una vez en vuelo, cualquier
     // toque adicional se ignora hasta que la operación termine (o falle).
     if (submittingRef.current) return;
-    const amt = parseFloat(amount.replace(",", ".")) || 0;
-    if (amt <= 0) return;
+    if (registerExpense) {
+      const amt = parseFloat(amount.replace(",", ".")) || 0;
+      if (amt <= 0) return;
+    }
     submittingRef.current = true;
     setIsSubmitting(true);
-    const cash = method === "mixto" ? parseFloat(cashAmount.replace(",", ".")) || 0 : undefined;
     try {
-      onComplete({ amount: amt, method, cashAmount: cash, origin, note: note.trim() || undefined });
+      if (registerExpense) {
+        const amt = parseFloat(amount.replace(",", ".")) || 0;
+        const cash = method === "mixto" ? parseFloat(cashAmount.replace(",", ".")) || 0 : undefined;
+        onComplete({ registerExpense: true, amount: amt, method, cashAmount: cash, origin, note: note.trim() || undefined });
+      } else {
+        onComplete({ registerExpense: false });
+      }
       setShowFinish(false);
       onClose();
     } finally {
@@ -98,10 +107,15 @@ export function CompraOverlayModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+      <KeyboardAvoidingView
+        style={styles.backdrop}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
+      >
         <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.onSurface }]} numberOfLines={1}>
+              {list.list_code ? `#${list.list_code} · ` : ""}
               {list.title}
             </Text>
             <View style={{ flexDirection: "row", gap: SPACING.md, alignItems: "center" }}>
@@ -114,7 +128,7 @@ export function CompraOverlayModal({
             </View>
           </View>
 
-          <View style={{ gap: SPACING.sm, maxHeight: 320 }}>
+          <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ gap: SPACING.sm }} keyboardShouldPersistTaps="handled">
             {entries.map((item) => (
               <View key={item.id} style={[styles.row, { backgroundColor: colors.surfaceSecondary }]}>
                 {!editing ? (
@@ -140,7 +154,7 @@ export function CompraOverlayModal({
                 ) : null}
               </View>
             ))}
-          </View>
+          </ScrollView>
 
           {editing ? (
             <View style={[styles.addRow, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
@@ -160,38 +174,65 @@ export function CompraOverlayModal({
           ) : null}
 
           {!showFinish ? (
-            <Button title="Finalizar compra" icon="shopping-bag" onPress={() => setShowFinish(true)} testID="compra-finish-button" />
+            <Button title="Finalizar lista" icon="check-square" onPress={() => setShowFinish(true)} testID="compra-finish-button" />
           ) : (
-            <View style={{ gap: SPACING.md }}>
-              <Field label="Monto total gastado" icon="dollar-sign" keyboardType="decimal-pad" value={amount} onChangeText={setAmount} testID="compra-amount-input" />
-              <Segmented
-                testID="compra-method"
-                options={[
-                  { key: "efectivo", label: "Efectivo" },
-                  { key: "transferencia", label: "Transferencia" },
-                  { key: "mixto", label: "Mixto" },
-                ]}
-                value={method}
-                onChange={(k) => setMethod(k as Method)}
-              />
-              {method === "mixto" ? (
-                <View style={{ gap: SPACING.xs }}>
-                  <Field label="Efectivo pagado" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="compra-cash-input" />
-                  <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm }}>
-                    Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
+            <ScrollView contentContainerStyle={{ gap: SPACING.md }} keyboardShouldPersistTaps="handled">
+              <Pressable style={styles.switchRow} onPress={() => setRegisterExpense((v) => !v)} testID="compra-register-expense-toggle">
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.onSurface, fontFamily: FONTS.bold, fontSize: FONT_SIZE.base }}>Es una compra</Text>
+                  <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs }}>
+                    {registerExpense ? "Se registrará como gasto al finalizar" : "Se archivará sin generar un gasto"}
                   </Text>
                 </View>
+                <Switch
+                  value={registerExpense}
+                  onValueChange={setRegisterExpense}
+                  trackColor={{ true: colors.brand, false: colors.borderStrong }}
+                  thumbColor="#FFF"
+                  testID="compra-register-expense-switch"
+                />
+              </Pressable>
+
+              {registerExpense ? (
+                <>
+                  <Field label="Monto total gastado" icon="dollar-sign" keyboardType="decimal-pad" value={amount} onChangeText={setAmount} testID="compra-amount-input" />
+                  <Segmented
+                    testID="compra-method"
+                    options={[
+                      { key: "efectivo", label: "Efectivo" },
+                      { key: "transferencia", label: "Transferencia" },
+                      { key: "mixto", label: "Mixto" },
+                    ]}
+                    value={method}
+                    onChange={(k) => setMethod(k as Method)}
+                  />
+                  {method === "mixto" ? (
+                    <View style={{ gap: SPACING.xs }}>
+                      <Field label="Efectivo pagado" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="compra-cash-input" />
+                      <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm }}>
+                        Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <View style={{ gap: SPACING.xs }}>
+                    <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Origen del dinero</Text>
+                    <OriginGrid value={origin} onChange={setOrigin} testID="compra-origin-grid" />
+                  </View>
+                  <Field label="Nota (opcional)" value={note} onChangeText={setNote} testID="compra-note-input" />
+                </>
               ) : null}
-              <View style={{ gap: SPACING.xs }}>
-                <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Origen del dinero</Text>
-                <OriginGrid value={origin} onChange={setOrigin} testID="compra-origin-grid" />
-              </View>
-              <Field label="Nota (opcional)" value={note} onChangeText={setNote} testID="compra-note-input" />
-              <Button title="Confirmar y registrar gasto" icon="check" onPress={handleFinish} loading={isSubmitting} disabled={isSubmitting} testID="compra-confirm-button" />
-            </View>
+              <Button
+                title={registerExpense ? "Confirmar y registrar gasto" : "Finalizar sin registrar gasto"}
+                icon="check"
+                onPress={handleFinish}
+                loading={isSubmitting}
+                disabled={isSubmitting}
+                testID="compra-confirm-button"
+              />
+            </ScrollView>
           )}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -207,4 +248,5 @@ const styles = StyleSheet.create({
   addInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
   addBtn: { width: 36, height: 36, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
   label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
+  switchRow: { flexDirection: "row", alignItems: "center", gap: SPACING.md },
 });

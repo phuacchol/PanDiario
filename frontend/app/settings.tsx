@@ -117,9 +117,19 @@ export default function Settings() {
 
   const toggleBubble = async (val: boolean) => {
     if (!bubbleAvailable) return;
+    // El Switch nativo de Android mueve su thumb de inmediato al toque,
+    // antes de que este handler async resuelva; si el estado controlado
+    // (bubbleEnabled) no se actualiza en el mismo instante, el thumb queda
+    // "adelantado" un frame y el re-render posterior lo hace rebotar/
+    // parpadear de vuelta. Fijar el valor optimista aquí, en el mismo tick
+    // del toque, mantiene el Switch sincronizado sin esa condición de
+    // carrera; si el permiso falla, se revierte de forma explícita (una
+    // única transición limpia, no un rebote).
+    setBubbleEnabled(val);
     if (val) {
       const hasPermission = await overlayBubble.hasPermission();
       if (!hasPermission) {
+        setBubbleEnabled(false);
         Alert.alert(
           "Permiso necesario",
           "PanDiario necesita permiso para mostrar la burbuja sobre otras apps. Actívalo en la siguiente pantalla y vuelve a intentarlo.",
@@ -131,10 +141,8 @@ export default function Settings() {
         return;
       }
       overlayBubble.start();
-      setBubbleEnabled(true);
     } else {
       overlayBubble.stop();
-      setBubbleEnabled(false);
     }
   };
 

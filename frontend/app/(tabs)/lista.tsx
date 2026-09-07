@@ -18,7 +18,7 @@ type DraftItem = { id: string; text: string; done: boolean };
 
 export default function ListaScreen() {
   const { colors } = useTheme();
-  const { lists, listEntries, addList, deleteList, startListExecution, addListEntry, toggleListEntry, deleteListEntry, completeList } = useData();
+  const { lists, listEntries, addList, deleteList, toggleListPlay, addListEntry, toggleListEntry, deleteListEntry, completeList } = useData();
 
   const [panel, setPanel] = useState<Panel>("listas");
   const [search, setSearch] = useState("");
@@ -68,10 +68,12 @@ export default function ListaScreen() {
   const activeList = lists.find((l) => l.id === activeListId) || null;
   const activeEntries = listEntries.filter((e) => e.list_id === activeListId);
 
-  // Presionar Play: la primera vez pasa la lista a "en ejecución" (ícono
-  // verde). Reabrir una lista ya en ejecución solo continúa donde quedó.
+  // Play es un alternador: toca para pasar a "en ejecución" (ícono verde,
+  // bloqueada contra edición estructural) y toca de nuevo para volver a
+  // "activa" (color neutro, desbloqueada). El ícono en sí alterna el
+  // estado; el panel de la lista se abre en cualquiera de los dos casos.
   const onPlay = (list: ListRecord) => {
-    if (list.status === "active") startListExecution(list.id);
+    toggleListPlay(list.id);
     setActiveListId(list.id);
   };
 
@@ -143,6 +145,7 @@ export default function ListaScreen() {
           <View style={[styles.card, { backgroundColor: colors.surfaceSecondary }]}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
+                {item.list_code ? `#${item.list_code} · ` : ""}
                 {item.title}
               </Text>
               {item.is_programmed && item.scheduled_at ? (
@@ -300,6 +303,7 @@ export default function ListaScreen() {
                   <Feather name="check-circle" size={18} color={colors.success} />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
+                      {item.list_code ? `#${item.list_code} · ` : ""}
                       {item.title}
                     </Text>
                     {item.completed_at ? (

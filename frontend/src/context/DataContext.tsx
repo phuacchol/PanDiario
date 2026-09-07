@@ -80,6 +80,7 @@ export type ListStatus = "active" | "in_progress" | "done";
 
 export type ListRecord = {
   id: string;
+  list_code: string;
   title: string;
   category: string | null;
   is_programmed: boolean;
@@ -180,13 +181,13 @@ type DataCtx = {
   addList: (p: { title: string; category?: string; isProgrammed?: boolean; scheduledAt?: string | null; leadMinutes?: number }) => Promise<string>;
   updateList: (id: string, patch: { title?: string; category?: string }) => Promise<void>;
   deleteList: (id: string) => Promise<void>;
-  startListExecution: (id: string) => Promise<void>;
+  toggleListPlay: (id: string) => Promise<void>;
   addListEntry: (listId: string, text: string, extra?: boolean) => Promise<void>;
   toggleListEntry: (id: string) => Promise<void>;
   deleteListEntry: (id: string) => Promise<void>;
   completeList: (
     listId: string,
-    p: { amount: number; method: Method; cashAmount?: number; origin: Origin; category?: string; note?: string }
+    p: { registerExpense: boolean; amount?: number; method?: Method; cashAmount?: number; origin?: Origin; category?: string; note?: string }
   ) => Promise<void>;
 
   deleteCycle: (id: string) => Promise<void>;
@@ -243,6 +244,7 @@ function mapList(row: any): ListRecord {
   const status: ListStatus = row.status === "done" ? "done" : row.status === "in_progress" ? "in_progress" : "active";
   return {
     id: row.id,
+    list_code: row.list_code || "",
     title: row.title,
     category: row.category || null,
     is_programmed: !!row.is_programmed,
@@ -347,7 +349,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const listRows = await db.getAllAsync<any>(`SELECT * FROM lists ORDER BY created_at DESC`).catch(() => []);
     setLists((listRows || []).map(mapList));
 
-    const entryRows = await db.getAllAsync<any>(`SELECT * FROM list_entries ORDER BY created_at ASC`).catch(() => []);
+    const entryRows = await db.getAllAsync<any>(`SELECT * FROM list_entries ORDER BY created_at DESC`).catch(() => []);
     setListEntries((entryRows || []).map(mapListEntry));
 
     setLoading(false);
@@ -774,6 +776,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const isProgrammed = !!p.isProgrammed && !!p.scheduledAt;
       const leadMinutes = p.leadMinutes ?? 15;
 
+      // Código secuencial visible (#L-001, #L-002, ...): se calcula sobre el
+      // mayor número ya usado en las listas cargadas, así que sobrevive a
+      // borrados sin reutilizar un código ya mostrado al usuario.
+      let maxSeq = 0;
+      for (const l of lists) {
+        const m = /^L-(\d+)$/.exec(l.list_code || "");
+        if (m) maxSeq = Math.max(maxSeq, parseInt(m[1], 10));
+      }
+      const listCode = `L-${String(maxSeq + 1).padStart(3, "0")}`;
+
       let notificationId: string | null = null;
       if (isProgrammed && p.scheduledAt) {
         notificationId = await scheduleReminder({ id, text: `Lista: ${title}`, remindAt: p.scheduledAt, leadMinutes });
@@ -781,6 +793,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
       const newList: ListRecord = {
         id,
+        list_code: listCode,
         title,
         category: p.category || null,
         is_programmed: isProgrammed,
@@ -797,14 +810,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO lists (id, title, category, is_programmed, scheduled_at, lead_minutes, notification_id, status, created_at, cycle_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-          [id, title, newList.category, isProgrammed ? 1 : 0, newList.scheduled_at, leadMinutes, notificationId, now, openCycleId]
+          `INSERT INTO lists (id, list_code, title, category, is_programmed, scheduled_at, lead_minutes, notification_id, status, created_at, cycle_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+          [id, listCode, title, newList.category, isProgrammed ? 1 : 0, newList.scheduled_at, leadMinutes, notificationId, now, openCycleId]
         ).catch(() => {});
       }
       return id;
     },
-    [openCycleId]
+    [openCycleId, lists]
   );
 
   const updateList = useCallback(async (id: string, patch: { title?: string; category?: string }) => {
@@ -832,12 +845,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [lists]
   );
 
+  // Los ítems nuevos se anteponen (más cerca del input de entrada) para
+  // confirmar visualmente la adición inmediata, empujando los anteriores
+  // hacia abajo -igual en la lista en memoria que en la recarga desde DB
+  // (ver el SELECT ...ORDER BY created_at DESC en refresh()).
   const addListEntry = useCallback(async (listId: string, text: string, extra: boolean = false) => {
     const clean = (text || "").trim();
     if (!clean) return;
     const id = newId("entry");
     const now = todayISO();
-    setListEntries((prev) => [...prev, { id, list_id: listId, text: clean, done: false, extra, created_at: now }]);
+    setListEntries((prev) => [{ id, list_id: listId, text: clean, done: false, extra, created_at: now }, ...prev]);
     const db = await getDb();
     if (db) {
       await db.runAsync(`INSERT INTO list_entries (id, list_id, text, done, extra, created_at) VALUES (?, ?, ?, 0, ?, ?)`, [id, listId, clean, extra ? 1 : 0, now]).catch(() => {});
@@ -861,30 +878,43 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (db) await db.runAsync(`DELETE FROM list_entries WHERE id = ?`, [id]).catch(() => {});
   }, []);
 
-  // Presionar Play: pasa la lista a "en ejecución" (ícono verde, bloqueada
-  // contra edición estructural -renombrar/quitar ítems base-; los ítems
-  // nuevos que se agreguen mientras tanto quedan marcados 'extra' y se ven
-  // en naranja). Reabrir el overlay de una lista ya en_progress no la
-  // reinicia -sigue en el mismo estado hasta Finalizar Compra-.
-  const startListExecution = useCallback(async (id: string) => {
-    setLists((prev) => prev.map((l) => (l.id === id && l.status === "active" ? { ...l, status: "in_progress" } : l)));
-    const db = await getDb();
-    if (db) await db.runAsync(`UPDATE lists SET status = 'in_progress' WHERE id = ? AND status = 'active'`, [id]).catch(() => {});
-  }, []);
+  // Play es un alternador real: un toque pasa la lista a "en ejecución"
+  // (ícono verde, bloqueada contra edición estructural -renombrar/quitar
+  // ítems base-; los ítems nuevos que se agreguen mientras tanto quedan
+  // marcados 'extra' y se ven en naranja) y otro toque la regresa a
+  // "activa" (color neutro, desbloqueada). Una lista ya 'done' no cambia.
+  const toggleListPlay = useCallback(
+    async (id: string) => {
+      const target = lists.find((l) => l.id === id);
+      if (!target || target.status === "done") return;
+      const nextStatus: ListStatus = target.status === "in_progress" ? "active" : "in_progress";
+      setLists((prev) => prev.map((l) => (l.id === id ? { ...l, status: nextStatus } : l)));
+      const db = await getDb();
+      if (db) await db.runAsync(`UPDATE lists SET status = ? WHERE id = ?`, [nextStatus, id]).catch(() => {});
+    },
+    [lists]
+  );
 
-  // Cierra la compra desde el overlay flotante (o desde la app): genera el
-  // gasto "Lista de compras" con el origen elegido y marca la lista como
-  // finalizada (queda archivada en el Historial de Listas, ya no aparece
-  // entre las listas activas/en ejecución).
+  // Cierra la lista desde el overlay flotante (o desde la app). El
+  // interruptor "Registrar como gasto / Es una compra" decide el
+  // comportamiento: si viene activo, genera el gasto referenciando el
+  // código de la lista (ej. "Gasto Lista #L-001") con el origen elegido;
+  // si viene desactivado, solo archiva la lista sin tocar la contabilidad.
+  // En ambos casos la lista termina en estado 'done' (Historial de Listas).
   const completeList = useCallback(
-    async (listId: string, p: { amount: number; method: Method; cashAmount?: number; origin: Origin; category?: string; note?: string }) => {
+    async (listId: string, p: { registerExpense: boolean; amount?: number; method?: Method; cashAmount?: number; origin?: Origin; category?: string; note?: string }) => {
       const now = todayISO();
-      await addExpense({ amount: p.amount, method: p.method, cashAmount: p.cashAmount, origin: p.origin, category: p.category || "Lista de compras", note: p.note });
+      if (p.registerExpense && p.amount && p.method && p.origin) {
+        const target = lists.find((l) => l.id === listId);
+        const codeTag = target?.list_code ? `Gasto Lista #${target.list_code}` : "Gasto de lista";
+        const note = p.note ? `${p.note} (${codeTag})` : codeTag;
+        await addExpense({ amount: p.amount, method: p.method, cashAmount: p.cashAmount, origin: p.origin, category: p.category || "Lista de compras", note });
+      }
       setLists((prev) => prev.map((l) => (l.id === listId ? { ...l, status: "done", completed_at: now } : l)));
       const db = await getDb();
       if (db) await db.runAsync(`UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?`, [now, listId]).catch(() => {});
     },
-    [addExpense]
+    [addExpense, lists]
   );
 
   // Elimina un cierre archivado del Historial. Es una limpieza del registro
@@ -939,7 +969,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         addList,
         updateList,
         deleteList,
-        startListExecution,
+        toggleListPlay,
         addListEntry,
         toggleListEntry,
         deleteListEntry,

@@ -3,6 +3,7 @@ const path = require("path");
 const { withAndroidManifest, withMainApplication, withDangerousMod, AndroidConfig } = require("@expo/config-plugins");
 
 const SERVICE_NAME = ".overlay.OverlayBubbleService";
+const FLOATING_ALIAS_NAME = ".overlay.FloatingDialogAlias";
 
 // Config plugin: registra la burbuja flotante nativa (SYSTEM_ALERT_WINDOW)
 // de PanDiario en el proyecto Android generado por `expo prebuild`. Los
@@ -32,6 +33,29 @@ function withOverlayBubbleManifest(config) {
             },
           },
         ],
+      });
+    }
+
+    // Alias de MainActivity con tema de diálogo flotante: las ventanas de
+    // Ingresos/Gastos/Notas/Lista nueva/Hablar que la burbuja abre desde
+    // fuera de la app reutilizan las mismas pantallas React Native, pero
+    // lanzadas a través de este alias (mismo código, mismo proceso) para
+    // que la ventana se vea como una tarjeta flotante sobre lo que sea que
+    // esté en pantalla en vez de tomar toda la pantalla. Al apuntar
+    // explícitamente al alias por nombre de componente (no por
+    // intent-filter) el lanzamiento normal de la app -ícono, deep links
+    // pandiario://quick/*- no se ve afectado en absoluto.
+    if (!Array.isArray(app["activity-alias"])) app["activity-alias"] = [];
+    const aliasRegistered = app["activity-alias"].some((a) => a.$ && a.$["android:name"] === FLOATING_ALIAS_NAME);
+    if (!aliasRegistered) {
+      app["activity-alias"].push({
+        $: {
+          "android:name": FLOATING_ALIAS_NAME,
+          "android:targetActivity": ".MainActivity",
+          "android:theme": "@style/Theme.PanDiario.FloatingDialog",
+          "android:exported": "false",
+          "android:excludeFromRecents": "true",
+        },
       });
     }
 
@@ -126,10 +150,28 @@ function withOverlayBubbleIcon(config) {
   ]);
 }
 
+// Copia el tema de diálogo flotante (Theme.PanDiario.FloatingDialog) a
+// res/values/. Es un recurso XML plano -sin __PACKAGE__ que sustituir-, así
+// que se copia tal cual, por fuera del filtro de archivos .kt.template de
+// withOverlayBubbleNativeSources.
+function withOverlayBubbleFloatingTheme(config) {
+  return withDangerousMod(config, [
+    "android",
+    async (config) => {
+      const valuesDir = path.join(config.modRequest.platformProjectRoot, "app", "src", "main", "res", "values");
+      fs.mkdirSync(valuesDir, { recursive: true });
+      const src = path.join(__dirname, "android-native", "pandiario_overlay_styles.xml");
+      fs.copyFileSync(src, path.join(valuesDir, "pandiario_overlay_styles.xml"));
+      return config;
+    },
+  ]);
+}
+
 module.exports = function withOverlayBubble(config) {
   config = withOverlayBubbleManifest(config);
   config = withOverlayBubbleMainApplication(config);
   config = withOverlayBubbleNativeSources(config);
   config = withOverlayBubbleIcon(config);
+  config = withOverlayBubbleFloatingTheme(config);
   return config;
 };

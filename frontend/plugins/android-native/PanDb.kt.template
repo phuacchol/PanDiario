@@ -22,7 +22,7 @@ import kotlin.math.min
 // devuelve un resultado nulo/false que la UI del overlay interpreta como
 // "no se pudo, vuelve a intentar".
 object PanDb {
-  data class ListRow(val id: String, val title: String, val status: String)
+  data class ListRow(val id: String, val listCode: String, val title: String, val status: String)
   data class EntryRow(val id: String, val text: String, val done: Boolean, val extra: Boolean)
 
   private fun dbFile(context: Context): File = File(context.filesDir, "SQLite/pandiario.db")
@@ -49,8 +49,8 @@ object PanDb {
   fun getInProgressList(context: Context): ListRow? {
     val db = open(context) ?: return null
     try {
-      db.rawQuery("SELECT id, title, status FROM lists WHERE status = 'in_progress' ORDER BY created_at DESC LIMIT 1", null).use { c ->
-        if (c.moveToFirst()) return ListRow(c.getString(0), c.getString(1), c.getString(2))
+      db.rawQuery("SELECT id, list_code, title, status FROM lists WHERE status = 'in_progress' ORDER BY created_at DESC LIMIT 1", null).use { c ->
+        if (c.moveToFirst()) return ListRow(c.getString(0), c.getString(1) ?: "", c.getString(2), c.getString(3))
       }
       return null
     } catch (_: Exception) {
@@ -63,8 +63,8 @@ object PanDb {
   fun getList(context: Context, listId: String): ListRow? {
     val db = open(context) ?: return null
     try {
-      db.rawQuery("SELECT id, title, status FROM lists WHERE id = ?", arrayOf(listId)).use { c ->
-        if (c.moveToFirst()) return ListRow(c.getString(0), c.getString(1), c.getString(2))
+      db.rawQuery("SELECT id, list_code, title, status FROM lists WHERE id = ?", arrayOf(listId)).use { c ->
+        if (c.moveToFirst()) return ListRow(c.getString(0), c.getString(1) ?: "", c.getString(2), c.getString(3))
       }
       return null
     } catch (_: Exception) {
@@ -74,11 +74,14 @@ object PanDb {
     }
   }
 
+  // Más recientes primero (mismo criterio que addListEntry en
+  // src/context/DataContext.tsx): un ítem agregado durante la ejecución
+  // aparece de inmediato arriba, empujando los anteriores hacia abajo.
   fun getEntries(context: Context, listId: String): List<EntryRow> {
     val db = open(context) ?: return emptyList()
     val out = mutableListOf<EntryRow>()
     try {
-      db.rawQuery("SELECT id, text, done, extra FROM list_entries WHERE list_id = ? ORDER BY created_at ASC", arrayOf(listId)).use { c ->
+      db.rawQuery("SELECT id, text, done, extra FROM list_entries WHERE list_id = ? ORDER BY created_at DESC", arrayOf(listId)).use { c ->
         while (c.moveToNext()) {
           out.add(EntryRow(c.getString(0), c.getString(1), c.getInt(2) != 0, c.getInt(3) != 0))
         }
@@ -226,6 +229,21 @@ object PanDb {
         db.endTransaction()
       } catch (_: Exception) {
       }
+      db.close()
+    }
+  }
+
+  // Interruptor "Es una compra" desactivado: archiva la lista como 'done'
+  // sin tocar wallet/presupuesto/transacciones -equivalente nativo de
+  // completeList({ registerExpense: false }) en DataContext.tsx-.
+  fun archiveListWithoutExpense(context: Context, listId: String): Boolean {
+    val db = open(context) ?: return false
+    try {
+      db.execSQL("UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?", arrayOf(isoNow(), listId))
+      return true
+    } catch (_: Exception) {
+      return false
+    } finally {
       db.close()
     }
   }
