@@ -6,30 +6,44 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Shader
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import java.util.Locale
 import kotlin.math.abs
 
-// Burbuja flotante fuera de la app (overlay). Muestra el ícono de la app
-// como botón circular arrastrable; al tocarlo (sin arrastrar) despliega un
-// panel con 4 accesos rápidos (+ Ingreso, - Gasto, Nota, Lista) y un botón
-// de micrófono, cada uno abriendo PanDiario directo en esa pantalla vía el
-// esquema "pandiario://quick/<accion>". El reconocimiento de voz en sí
-// ocurre dentro de la app (pantalla /voice ya existente) una vez traída al
-// frente: la burbuja solo decide a dónde navegar, no reimplementa STT nativo.
+// Burbuja flotante fuera de la app (overlay, estilo "call-head" de
+// Messenger). Ícono: pan_burbuja (o pan_avatar de respaldo), recortado en
+// círculo. Al tocarla despliega una tarjeta con 3 accesos (Lista activa,
+// Nueva nota, Calculadora) + una barra inferior de micrófono a ancho
+// completo. Si hay una lista "en ejecución" (Play presionado desde la
+// app), "Lista activa" abre un segundo panel flotante -checklist +
+// liquidación- que lee/escribe la misma base SQLite de la app sin
+// necesidad de traerla al frente. El micrófono deep-linkea a /voice -el
+// reconocimiento de voz en sí ya vive ahí, con push-to-talk real dentro de
+// la app-.
 class OverlayBubbleService : Service() {
 
   companion object {
@@ -37,12 +51,36 @@ class OverlayBubbleService : Service() {
     var isRunning: Boolean = false
     private const val CHANNEL_ID = "pandiario_overlay_bubble"
     private const val NOTIF_ID = 4821
+
+    // Paleta exacta de src/theme/theme.ts (LIGHT), para que el overlay
+    // nativo se vea consistente con la app.
+    private const val COLOR_BRAND = "#6C7FD8"
+    private const val COLOR_ACCENT = "#E67E22" // ítems extra / naranja
+    private const val COLOR_SUCCESS = "#48C78E"
+    private const val COLOR_ERROR = "#E55050"
+    private const val COLOR_TEXT = "#12102A"
+    private const val COLOR_TEXT_MUTED = "#8A8FA3"
+    private const val COLOR_SURFACE_ALT = "#F2F3F8"
   }
 
   private var windowManager: WindowManager? = null
   private var currentView: View? = null
   private var currentParams: WindowManager.LayoutParams? = null
-  private var expanded = false
+
+  // Estado del panel de ejecución de lista (se reconstruye la vista
+  // completa en cada cambio; es más simple y confiable en Views nativas
+  // imperativas que intentar un diff manual).
+  private var execListId: String? = null
+  private var execEditing = false
+  private var execShowFinish = false
+  private var execAmount = ""
+  private var execMethod = "efectivo"
+  private var execCashAmount = ""
+  private var execOrigin = "cuenta"
+  private var execNote = ""
+  private var execNewItemText = ""
+  @Volatile
+  private var execSubmitting = false
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -125,16 +163,48 @@ class OverlayBubbleService : Service() {
     currentView = null
   }
 
+  // -------------------------------------------------------------------
+  // Burbuja colapsada
+  // -------------------------------------------------------------------
+
+  private fun circularBitmapDrawable(sourceResId: Int, sizePx: Int): BitmapDrawable? {
+    return try {
+      val original = android.graphics.BitmapFactory.decodeResource(resources, sourceResId) ?: return null
+      val output = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+      val canvas = Canvas(output)
+      val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+      val shader = BitmapShader(
+        Bitmap.createScaledBitmap(original, sizePx, sizePx, true),
+        Shader.TileMode.CLAMP,
+        Shader.TileMode.CLAMP
+      )
+      paint.shader = shader
+      val radius = sizePx / 2f
+      canvas.drawCircle(radius, radius, radius, paint)
+      BitmapDrawable(resources, output)
+    } catch (_: Exception) {
+      null
+    }
+  }
+
   private fun showCollapsedBubble() {
     val size = dp(56)
+    val iconResId = resources.getIdentifier("pan_burbuja", "drawable", packageName)
+    val circular = if (iconResId != 0) circularBitmapDrawable(iconResId, size) else null
+
     val bubble = ImageView(this).apply {
-      background = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(Color.parseColor("#2563EB"))
+      if (circular != null) {
+        setImageDrawable(circular)
+        scaleType = ImageView.ScaleType.CENTER_CROP
+      } else {
+        background = GradientDrawable().apply {
+          shape = GradientDrawable.OVAL
+          setColor(Color.parseColor(COLOR_BRAND))
+        }
+        setImageResource(applicationInfo.icon)
+        setPadding(dp(8), dp(8), dp(8), dp(8))
+        scaleType = ImageView.ScaleType.CENTER_INSIDE
       }
-      setImageResource(applicationInfo.icon)
-      setPadding(dp(8), dp(8), dp(8), dp(8))
-      scaleType = ImageView.ScaleType.CENTER_INSIDE
     }
 
     val lp = WindowManager.LayoutParams(
@@ -150,21 +220,38 @@ class OverlayBubbleService : Service() {
 
     attachDragAndClick(bubble, lp) { showExpandedPanel() }
 
+    removeCurrentView()
     try {
       windowManager?.addView(bubble, lp)
       currentView = bubble
       currentParams = lp
-      expanded = false
     } catch (_: Exception) {
     }
   }
 
+  private fun collapseToBubble() {
+    execListId = null
+    execEditing = false
+    execShowFinish = false
+    execAmount = ""
+    execCashAmount = ""
+    execNote = ""
+    execNewItemText = ""
+    execSubmitting = false
+    removeCurrentView()
+    showCollapsedBubble()
+  }
+
+  // -------------------------------------------------------------------
+  // Menú desplegable (estilo Messenger call-head)
+  // -------------------------------------------------------------------
+
   private fun showExpandedPanel() {
     removeCurrentView()
 
-    val panel = buildPanelView()
+    val panel = buildMenuPanelView()
     val lp = WindowManager.LayoutParams(
-      WindowManager.LayoutParams.WRAP_CONTENT,
+      dp(220),
       WindowManager.LayoutParams.WRAP_CONTENT,
       overlayType(),
       WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -178,77 +265,127 @@ class OverlayBubbleService : Service() {
       windowManager?.addView(panel, lp)
       currentView = panel
       currentParams = lp
-      expanded = true
     } catch (_: Exception) {
     }
   }
 
-  private fun buildPanelView(): View {
+  private fun buildMenuPanelView(): View {
     val root = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
-      setPadding(dp(14), dp(10), dp(14), dp(14))
       background = GradientDrawable().apply {
-        cornerRadius = dp(22).toFloat()
+        cornerRadius = dp(18).toFloat()
         setColor(Color.WHITE)
       }
+      clipToOutline = true
     }
 
     val closeRow = LinearLayout(this).apply {
       orientation = LinearLayout.HORIZONTAL
       gravity = Gravity.END
-      layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+      setPadding(dp(10), dp(6), dp(10), 0)
     }
     closeRow.addView(TextView(this).apply {
       text = "✕"
-      setTextColor(Color.parseColor("#64748B"))
-      textSize = 16f
-      setPadding(dp(8), dp(4), dp(4), dp(8))
+      setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+      textSize = 14f
+      setPadding(dp(6), dp(4), dp(6), dp(4))
       setOnClickListener { collapseToBubble() }
     })
     root.addView(closeRow)
 
-    val actionsRow = LinearLayout(this).apply {
-      orientation = LinearLayout.HORIZONTAL
-      gravity = Gravity.CENTER
-    }
-    actionsRow.addView(makeCircleButton("+", "#10B981") { openApp("ingreso") })
-    actionsRow.addView(makeCircleButton("−", "#EF4444") { openApp("gasto") })
-    actionsRow.addView(makeCircleButton("📝", "#F59E0B") { openApp("nota") })
-    actionsRow.addView(makeCircleButton("☰", "#2563EB") { openApp("lista") })
-    root.addView(actionsRow)
+    val inProgress = try { PanDb.getInProgressList(this) } catch (_: Exception) { null }
+    root.addView(
+      menuRow(
+        "📋",
+        "Lista activa",
+        inProgress?.title,
+      ) {
+        if (inProgress != null) openListExecutionPanel(inProgress.id) else openApp("lista")
+      }
+    )
+    root.addView(menuRow("📝", "Nueva nota", null) { openApp("nota") })
+    root.addView(menuRow("🧮", "Calculadora", null) { openApp("budget") })
 
-    val micRow = LinearLayout(this).apply {
+    root.addView(View(this).apply {
+      layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1))
+      setBackgroundColor(Color.parseColor("#EEEEF2"))
+    })
+
+    // Botón inferior destacado a ancho completo, con push-to-talk: al
+    // soltar (o al tocar) deep-linkea a /voice, donde ya existe grabación
+    // real mientras se mantiene presionado dentro de la app.
+    val micBar = LinearLayout(this).apply {
       orientation = LinearLayout.HORIZONTAL
       gravity = Gravity.CENTER
-      setPadding(0, dp(10), 0, 0)
+      setPadding(dp(14), dp(14), dp(14), dp(14))
+      background = GradientDrawable().apply {
+        setColor(Color.parseColor(COLOR_BRAND))
+        cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, dp(18).toFloat(), dp(18).toFloat(), dp(18).toFloat(), dp(18).toFloat())
+      }
     }
-    micRow.addView(makeCircleButton("🎙", "#1D4ED8") { openApp("voice") })
-    root.addView(micRow)
+    micBar.addView(TextView(this).apply {
+      text = "🎙  Hablar"
+      setTextColor(Color.WHITE)
+      textSize = 15f
+      gravity = Gravity.CENTER
+    })
+    var micPressed = false
+    micBar.setOnTouchListener { v, event ->
+      when (event.action) {
+        MotionEvent.ACTION_DOWN -> {
+          micPressed = true
+          v.alpha = 0.75f
+          true
+        }
+        MotionEvent.ACTION_UP -> {
+          v.alpha = 1f
+          if (micPressed) openApp("voice")
+          micPressed = false
+          true
+        }
+        MotionEvent.ACTION_CANCEL -> {
+          v.alpha = 1f
+          micPressed = false
+          true
+        }
+        else -> false
+      }
+    }
+    root.addView(micBar)
 
     return root
   }
 
-  private fun makeCircleButton(label: String, colorHex: String, onClick: () -> Unit): View {
-    val size = dp(48)
-    return TextView(this).apply {
-      text = label
-      textSize = 18f
-      gravity = Gravity.CENTER
-      setTextColor(Color.WHITE)
-      layoutParams = LinearLayout.LayoutParams(size, size).apply {
-        setMargins(dp(6), 0, dp(6), 0)
-      }
-      background = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(Color.parseColor(colorHex))
-      }
+  private fun menuRow(icon: String, title: String, subtitle: String?, onClick: () -> Unit): View {
+    val row = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER_VERTICAL
+      setPadding(dp(14), dp(10), dp(14), dp(10))
+      isClickable = true
+      isFocusable = true
       setOnClickListener { onClick() }
     }
-  }
-
-  private fun collapseToBubble() {
-    removeCurrentView()
-    showCollapsedBubble()
+    row.addView(TextView(this).apply {
+      text = icon
+      textSize = 18f
+      setPadding(0, 0, dp(12), 0)
+    })
+    val textCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    textCol.addView(TextView(this).apply {
+      text = title
+      setTextColor(Color.parseColor(COLOR_TEXT))
+      textSize = 14f
+    })
+    if (!subtitle.isNullOrBlank()) {
+      textCol.addView(TextView(this).apply {
+        text = subtitle
+        setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+        textSize = 11f
+        maxLines = 1
+      })
+    }
+    row.addView(textCol)
+    return row
   }
 
   private fun openApp(action: String) {
@@ -261,6 +398,410 @@ class OverlayBubbleService : Service() {
     try {
       startActivity(intent)
     } catch (_: Exception) {
+    }
+  }
+
+  // -------------------------------------------------------------------
+  // Panel flotante de Lista en ejecución (checklist + liquidación) -
+  // ventana superpuesta sobre el sistema, sin abrir la app.
+  // -------------------------------------------------------------------
+
+  private fun openListExecutionPanel(listId: String) {
+    execListId = listId
+    execEditing = false
+    execShowFinish = false
+    execAmount = ""
+    execCashAmount = ""
+    execOrigin = "cuenta"
+    execMethod = "efectivo"
+    execNote = ""
+    execNewItemText = ""
+    execSubmitting = false
+    renderExecutionPanel()
+  }
+
+  private fun renderExecutionPanel() {
+    val listId = execListId ?: return collapseToBubble()
+    val list = try { PanDb.getList(this, listId) } catch (_: Exception) { null }
+    if (list == null || list.status != "in_progress") {
+      collapseToBubble()
+      return
+    }
+
+    val view = buildExecutionPanelView(list)
+    val lp = WindowManager.LayoutParams(
+      dp(300),
+      WindowManager.LayoutParams.WRAP_CONTENT,
+      overlayType(),
+      0,
+      PixelFormat.TRANSLUCENT
+    )
+    lp.gravity = Gravity.CENTER
+
+    removeCurrentView()
+    try {
+      windowManager?.addView(view, lp)
+      currentView = view
+      currentParams = lp
+    } catch (_: Exception) {
+    }
+  }
+
+  private fun buildExecutionPanelView(list: PanDb.ListRow): View {
+    val entries = try { PanDb.getEntries(this, list.id) } catch (_: Exception) { emptyList() }
+
+    val root = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      setPadding(dp(16), dp(14), dp(16), dp(16))
+      background = GradientDrawable().apply {
+        cornerRadius = dp(20).toFloat()
+        setColor(Color.WHITE)
+      }
+    }
+
+    // Encabezado: título + minimizar + editar.
+    val header = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER_VERTICAL
+    }
+    header.addView(TextView(this).apply {
+      text = list.title
+      setTextColor(Color.parseColor(COLOR_TEXT))
+      textSize = 16f
+      setTypeface(typeface, android.graphics.Typeface.BOLD)
+      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+      maxLines = 1
+    })
+    header.addView(TextView(this).apply {
+      text = if (execEditing) "✓" else "✎"
+      setTextColor(Color.parseColor(COLOR_BRAND))
+      textSize = 16f
+      setPadding(dp(10), dp(4), dp(10), dp(4))
+      setOnClickListener {
+        execEditing = !execEditing
+        renderExecutionPanel()
+      }
+    })
+    header.addView(TextView(this).apply {
+      text = "–"
+      setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+      textSize = 18f
+      setPadding(dp(10), dp(4), dp(4), dp(4))
+      setOnClickListener { collapseToBubble() }
+    })
+    root.addView(header)
+
+    // Checklist con scroll (mismo tope visual que el modal en-app: ~280dp).
+    val scroll = ScrollView(this).apply {
+      layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(240))
+    }
+    val list_ = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      setPadding(0, dp(8), 0, dp(8))
+    }
+    for (entry in entries) {
+      list_.addView(buildEntryRow(entry))
+    }
+    scroll.addView(list_)
+    root.addView(scroll)
+
+    // Campo para añadir ítems nuevos (en naranja), visible en modo Editar.
+    if (execEditing) {
+      val addRow = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(4), dp(6), dp(4), dp(6))
+        background = GradientDrawable().apply {
+          cornerRadius = dp(10).toFloat()
+          setColor(Color.parseColor(COLOR_SURFACE_ALT))
+        }
+      }
+      val input = EditText(this).apply {
+        hint = "Añadir ítem"
+        setText(execNewItemText)
+        setTextColor(Color.parseColor(COLOR_ACCENT))
+        setHintTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+        setSingleLine(true)
+        setBackgroundColor(Color.TRANSPARENT)
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        addTextChangedListener(simpleWatcher { execNewItemText = it })
+      }
+      addRow.addView(input)
+      addRow.addView(TextView(this).apply {
+        text = "＋"
+        setTextColor(Color.WHITE)
+        textSize = 16f
+        setPadding(dp(10), dp(4), dp(10), dp(4))
+        background = GradientDrawable().apply {
+          shape = GradientDrawable.OVAL
+          setColor(Color.parseColor(COLOR_BRAND))
+        }
+        setOnClickListener {
+          val clean = execNewItemText.trim()
+          if (clean.isNotEmpty()) {
+            try { PanDb.addEntry(this@OverlayBubbleService, list.id, clean) } catch (_: Exception) {}
+            execNewItemText = ""
+            renderExecutionPanel()
+          }
+        }
+      })
+      root.addView(addRow)
+    }
+
+    root.addView(View(this).apply {
+      layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12))
+    })
+
+    if (!execShowFinish) {
+      root.addView(actionButton("Finalizar compra", COLOR_BRAND) {
+        execShowFinish = true
+        renderExecutionPanel()
+      })
+    } else {
+      root.addView(buildSettlementForm(list))
+    }
+
+    return root
+  }
+
+  private fun buildEntryRow(entry: PanDb.EntryRow): View {
+    val row = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER_VERTICAL
+      setPadding(dp(4), dp(6), dp(4), dp(6))
+    }
+    if (!execEditing) {
+      row.addView(TextView(this).apply {
+        text = if (entry.done) "●" else "○"
+        setTextColor(Color.parseColor(if (entry.done) COLOR_SUCCESS else COLOR_TEXT_MUTED))
+        textSize = 16f
+        setPadding(0, 0, dp(10), 0)
+        setOnClickListener {
+          try { PanDb.toggleEntryDone(this@OverlayBubbleService, entry.id, !entry.done) } catch (_: Exception) {}
+          renderExecutionPanel()
+        }
+      })
+    }
+    row.addView(TextView(this).apply {
+      text = entry.text
+      setTextColor(Color.parseColor(if (entry.extra) COLOR_ACCENT else COLOR_TEXT))
+      textSize = 14f
+      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+      if (entry.done && !execEditing) paintFlags = paintFlags or android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
+    })
+    // Bloqueo estructural: solo los ítems 'extra' muestran la X de quitar.
+    if (execEditing && entry.extra) {
+      row.addView(TextView(this).apply {
+        text = "✕"
+        setTextColor(Color.parseColor(COLOR_ERROR))
+        textSize = 14f
+        setPadding(dp(10), dp(4), dp(4), dp(4))
+        setOnClickListener {
+          try { PanDb.deleteExtraEntry(this@OverlayBubbleService, entry.id) } catch (_: Exception) {}
+          renderExecutionPanel()
+        }
+      })
+    }
+    return row
+  }
+
+  private fun buildSettlementForm(list: PanDb.ListRow): View {
+    val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+    col.addView(fieldLabel("Monto total gastado"))
+    col.addView(EditText(this).apply {
+      hint = "0.00"
+      setText(execAmount)
+      inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { execAmount = it })
+    })
+
+    col.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
+    col.addView(segmentedRow(listOf("efectivo" to "Efectivo", "transferencia" to "Transferencia", "mixto" to "Mixto"), execMethod) {
+      execMethod = it
+      renderExecutionPanel()
+    })
+
+    if (execMethod == "mixto") {
+      col.addView(fieldLabel("Efectivo pagado"))
+      col.addView(EditText(this).apply {
+        hint = "0.00"
+        setText(execCashAmount)
+        inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+        setPadding(dp(10), dp(8), dp(10), dp(8))
+        addTextChangedListener(simpleWatcher { execCashAmount = it })
+      })
+      val amt = execAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+      val cash = execCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+      val digital = if (amt - cash > 0) amt - cash else 0.0
+      col.addView(TextView(this).apply {
+        text = "Digital (calculado): S/ " + String.format(Locale.US, "%.2f", digital)
+        setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+        textSize = 12f
+        setPadding(0, dp(4), 0, 0)
+      })
+    }
+
+    col.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    col.addView(fieldLabel("Origen del dinero"))
+    col.addView(originGrid(execOrigin) {
+      execOrigin = it
+      renderExecutionPanel()
+    })
+
+    col.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
+    col.addView(fieldLabel("Nota (opcional)"))
+    col.addView(EditText(this).apply {
+      hint = "Detalle..."
+      setText(execNote)
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher { execNote = it })
+    })
+
+    col.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12)) })
+    col.addView(actionButton(if (execSubmitting) "Guardando..." else "Confirmar y registrar gasto", COLOR_SUCCESS) {
+      confirmSettlement(list)
+    })
+
+    return col
+  }
+
+  // Bloqueo estricto contra doble pulsación: mientras execSubmitting es
+  // true, cualquier toque adicional sobre el botón se ignora hasta que la
+  // escritura en SQLite termine (éxito o error), evitando duplicar el gasto.
+  private fun confirmSettlement(list: PanDb.ListRow) {
+    if (execSubmitting) return
+    val amount = execAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
+    if (amount <= 0) return
+
+    execSubmitting = true
+    renderExecutionPanel()
+
+    val cash = if (execMethod == "mixto") execCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0 else null
+    val note = execNote.trim().ifEmpty { null }
+
+    val ok = try {
+      PanDb.finalizePurchase(this, list.id, amount, execMethod, cash, execOrigin, "Lista de compras", note)
+    } catch (_: Exception) {
+      false
+    }
+
+    execSubmitting = false
+    if (ok) {
+      collapseToBubble()
+    } else {
+      // Falló la escritura (base no disponible, etc.): se queda en el
+      // formulario para que el usuario pueda reintentar, en vez de perder
+      // silenciosamente la liquidación.
+      renderExecutionPanel()
+    }
+  }
+
+  // -------------------------------------------------------------------
+  // Helpers de UI reutilizables
+  // -------------------------------------------------------------------
+
+  private fun fieldLabel(text: String): View {
+    return TextView(this).apply {
+      this.text = text
+      setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+      textSize = 12f
+      setPadding(dp(2), dp(6), 0, dp(2))
+    }
+  }
+
+  private fun segmentedRow(options: List<Pair<String, String>>, value: String, onChange: (String) -> Unit): View {
+    val row = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      background = GradientDrawable().apply {
+        cornerRadius = dp(10).toFloat()
+        setColor(Color.parseColor(COLOR_SURFACE_ALT))
+      }
+      setPadding(dp(3), dp(3), dp(3), dp(3))
+    }
+    for ((key, label) in options) {
+      val active = key == value
+      row.addView(TextView(this).apply {
+        text = label
+        textSize = 12f
+        gravity = Gravity.CENTER
+        setTextColor(Color.parseColor(if (active) "#FFFFFF" else COLOR_TEXT_MUTED))
+        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        setPadding(dp(4), dp(8), dp(4), dp(8))
+        if (active) {
+          background = GradientDrawable().apply {
+            cornerRadius = dp(8).toFloat()
+            setColor(Color.parseColor(COLOR_BRAND))
+          }
+        }
+        setOnClickListener { onChange(key) }
+      })
+    }
+    return row
+  }
+
+  private fun originGrid(value: String, onChange: (String) -> Unit): View {
+    val options = listOf(
+      "cuenta" to "Cuenta Actual",
+      "vital" to "Presupuesto Vital",
+      "secundario" to "Presupuesto Secundario",
+      "caja_chica" to "Caja Chica",
+      "ahorro" to "Ahorro"
+    )
+    val grid = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+    }
+    var row: LinearLayout? = null
+    options.forEachIndexed { index, (key, label) ->
+      if (index % 3 == 0) {
+        row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        grid.addView(row)
+      }
+      val active = key == value
+      row?.addView(TextView(this).apply {
+        text = label
+        textSize = 10.5f
+        gravity = Gravity.CENTER
+        setTextColor(Color.parseColor(if (active) "#FFFFFF" else COLOR_TEXT_MUTED))
+        layoutParams = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+          setMargins(dp(3), dp(3), dp(3), dp(3))
+        }
+        background = GradientDrawable().apply {
+          cornerRadius = dp(8).toFloat()
+          setColor(Color.parseColor(if (active) COLOR_BRAND else COLOR_SURFACE_ALT))
+        }
+        setOnClickListener { onChange(key) }
+      })
+    }
+    return grid
+  }
+
+  private fun actionButton(label: String, colorHex: String, onClick: () -> Unit): View {
+    return TextView(this).apply {
+      text = label
+      setTextColor(Color.WHITE)
+      textSize = 14f
+      gravity = Gravity.CENTER
+      setPadding(dp(12), dp(12), dp(12), dp(12))
+      background = GradientDrawable().apply {
+        cornerRadius = dp(12).toFloat()
+        setColor(Color.parseColor(colorHex))
+      }
+      setOnClickListener { onClick() }
+    }
+  }
+
+  private fun simpleWatcher(onChange: (String) -> Unit): TextWatcher {
+    return object : TextWatcher {
+      override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+      override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+      override fun afterTextChanged(s: Editable?) {
+        onChange(s?.toString() ?: "")
+      }
     }
   }
 

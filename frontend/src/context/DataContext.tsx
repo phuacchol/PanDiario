@@ -68,9 +68,15 @@ export type Note = {
   lead_minutes: number;
   notification_id: string | null;
   done: boolean;
+  completed_at: string | null;
   created_at: string;
   cycle_id: string | null;
 };
+
+// 'active' (sin empezar) -> 'in_progress' (Play presionado: bloqueada
+// contra edición estructural, ícono verde) -> 'done' (Finalizar Compra,
+// archivada en el Historial de Listas).
+export type ListStatus = "active" | "in_progress" | "done";
 
 export type ListRecord = {
   id: string;
@@ -80,7 +86,8 @@ export type ListRecord = {
   scheduled_at: string | null;
   lead_minutes: number;
   notification_id: string | null;
-  status: "active" | "done";
+  status: ListStatus;
+  completed_at: string | null;
   created_at: string;
   cycle_id: string | null;
 };
@@ -173,12 +180,13 @@ type DataCtx = {
   addList: (p: { title: string; category?: string; isProgrammed?: boolean; scheduledAt?: string | null; leadMinutes?: number }) => Promise<string>;
   updateList: (id: string, patch: { title?: string; category?: string }) => Promise<void>;
   deleteList: (id: string) => Promise<void>;
+  startListExecution: (id: string) => Promise<void>;
   addListEntry: (listId: string, text: string, extra?: boolean) => Promise<void>;
   toggleListEntry: (id: string) => Promise<void>;
   deleteListEntry: (id: string) => Promise<void>;
   completeList: (
     listId: string,
-    p: { amount: number; method: Method; origin: Origin; category?: string; note?: string }
+    p: { amount: number; method: Method; cashAmount?: number; origin: Origin; category?: string; note?: string }
   ) => Promise<void>;
 
   deleteCycle: (id: string) => Promise<void>;
@@ -225,12 +233,14 @@ function mapNote(row: any): Note {
     lead_minutes: Number(row.lead_minutes) || 15,
     notification_id: row.notification_id || null,
     done: !!row.done,
+    completed_at: row.completed_at || null,
     created_at: row.created_at,
     cycle_id: row.cycle_id || null,
   };
 }
 
 function mapList(row: any): ListRecord {
+  const status: ListStatus = row.status === "done" ? "done" : row.status === "in_progress" ? "in_progress" : "active";
   return {
     id: row.id,
     title: row.title,
@@ -239,7 +249,8 @@ function mapList(row: any): ListRecord {
     scheduled_at: row.scheduled_at || null,
     lead_minutes: Number(row.lead_minutes) || 15,
     notification_id: row.notification_id || null,
-    status: row.status === "done" ? "done" : "active",
+    status,
+    completed_at: row.completed_at || null,
     created_at: row.created_at,
     cycle_id: row.cycle_id || null,
   };
@@ -665,6 +676,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         lead_minutes: leadMinutes,
         notification_id: notificationId,
         done: false,
+        completed_at: null,
         created_at: now,
         cycle_id: openCycleId,
       };
@@ -717,9 +729,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     async (id: string) => {
       const target = notes.find((n) => n.id === id);
       const nextDone = !target?.done;
-      setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, done: nextDone } : n)));
+      // Se guarda la fecha/hora de cumplimiento para poder ordenar el
+      // Historial de Notas/Recordatorios cronológicamente; se limpia si el
+      // usuario destilda el ítem (vuelve a quedar activo, sin archivar).
+      const completedAt = nextDone ? todayISO() : null;
+      setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, done: nextDone, completed_at: completedAt } : n)));
       const db = await getDb();
-      if (db) await db.runAsync(`UPDATE notes SET done = ? WHERE id = ?`, [nextDone ? 1 : 0, id]).catch(() => {});
+      if (db) await db.runAsync(`UPDATE notes SET done = ?, completed_at = ? WHERE id = ?`, [nextDone ? 1 : 0, completedAt, id]).catch(() => {});
       if (nextDone && target?.notification_id) {
         cancelReminder(target.notification_id).catch(() => {});
       }
@@ -772,6 +788,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         lead_minutes: leadMinutes,
         notification_id: notificationId,
         status: "active",
+        completed_at: null,
         created_at: now,
         cycle_id: openCycleId,
       };
@@ -844,15 +861,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (db) await db.runAsync(`DELETE FROM list_entries WHERE id = ?`, [id]).catch(() => {});
   }, []);
 
+  // Presionar Play: pasa la lista a "en ejecución" (ícono verde, bloqueada
+  // contra edición estructural -renombrar/quitar ítems base-; los ítems
+  // nuevos que se agreguen mientras tanto quedan marcados 'extra' y se ven
+  // en naranja). Reabrir el overlay de una lista ya en_progress no la
+  // reinicia -sigue en el mismo estado hasta Finalizar Compra-.
+  const startListExecution = useCallback(async (id: string) => {
+    setLists((prev) => prev.map((l) => (l.id === id && l.status === "active" ? { ...l, status: "in_progress" } : l)));
+    const db = await getDb();
+    if (db) await db.runAsync(`UPDATE lists SET status = 'in_progress' WHERE id = ? AND status = 'active'`, [id]).catch(() => {});
+  }, []);
+
   // Cierra la compra desde el overlay flotante (o desde la app): genera el
   // gasto "Lista de compras" con el origen elegido y marca la lista como
-  // finalizada (queda archivada, ya no aparece entre las listas activas).
+  // finalizada (queda archivada en el Historial de Listas, ya no aparece
+  // entre las listas activas/en ejecución).
   const completeList = useCallback(
-    async (listId: string, p: { amount: number; method: Method; origin: Origin; category?: string; note?: string }) => {
-      await addExpense({ amount: p.amount, method: p.method, origin: p.origin, category: p.category || "Lista de compras", note: p.note });
-      setLists((prev) => prev.map((l) => (l.id === listId ? { ...l, status: "done" } : l)));
+    async (listId: string, p: { amount: number; method: Method; cashAmount?: number; origin: Origin; category?: string; note?: string }) => {
+      const now = todayISO();
+      await addExpense({ amount: p.amount, method: p.method, cashAmount: p.cashAmount, origin: p.origin, category: p.category || "Lista de compras", note: p.note });
+      setLists((prev) => prev.map((l) => (l.id === listId ? { ...l, status: "done", completed_at: now } : l)));
       const db = await getDb();
-      if (db) await db.runAsync(`UPDATE lists SET status = 'done' WHERE id = ?`, [listId]).catch(() => {});
+      if (db) await db.runAsync(`UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?`, [now, listId]).catch(() => {});
     },
     [addExpense]
   );
@@ -909,6 +939,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         addList,
         updateList,
         deleteList,
+        startListExecution,
         addListEntry,
         toggleListEntry,
         deleteListEntry,

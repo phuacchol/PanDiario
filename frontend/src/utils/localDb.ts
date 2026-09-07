@@ -109,14 +109,17 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         lead_minutes INTEGER DEFAULT 15,
         notification_id TEXT,
         done INTEGER DEFAULT 0,
+        completed_at TEXT,
         created_at TEXT NOT NULL,
         cycle_id TEXT
       );
 
       -- Pestaña LISTA: cada fila es una lista con nombre y categoría propios
       -- (ej. "Compras del súper"). is_programmed + scheduled_at la vuelven
-      -- una Lista Programada. status 'active' hasta completarse la compra
-      -- desde el overlay flotante ('done' la archiva en el Historial).
+      -- una Lista Programada. status: 'active' (sin empezar) ->
+      -- 'in_progress' (Play presionado, bloqueada contra edición
+      -- estructural, ícono verde) -> 'done' (Finalizar Compra, archivada
+      -- en el Historial de Listas).
       CREATE TABLE IF NOT EXISTS lists (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -126,6 +129,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         lead_minutes INTEGER DEFAULT 15,
         notification_id TEXT,
         status TEXT DEFAULT 'active',
+        completed_at TEXT,
         created_at TEXT NOT NULL,
         cycle_id TEXT
       );
@@ -165,6 +169,12 @@ async function initDb(db: SQLite.SQLiteDatabase) {
     } catch {}
     try {
       await db.runAsync(`ALTER TABLE transactions ADD COLUMN cash_amount REAL;`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE notes ADD COLUMN completed_at TEXT;`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE lists ADD COLUMN completed_at TEXT;`);
     } catch {}
   } catch (err) {
     console.warn("Fallo en execAsync de creación de tablas SQLite:", err);

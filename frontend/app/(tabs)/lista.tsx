@@ -18,11 +18,12 @@ type DraftItem = { id: string; text: string; done: boolean };
 
 export default function ListaScreen() {
   const { colors } = useTheme();
-  const { lists, listEntries, addList, deleteList, addListEntry, toggleListEntry, deleteListEntry, completeList } = useData();
+  const { lists, listEntries, addList, deleteList, startListExecution, addListEntry, toggleListEntry, deleteListEntry, completeList } = useData();
 
   const [panel, setPanel] = useState<Panel>("listas");
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [activeListId, setActiveListId] = useState<string | null>(null);
 
   const [newTitle, setNewTitle] = useState("");
@@ -53,14 +54,26 @@ export default function ListaScreen() {
   const query = search.trim().toLowerCase();
   const filtered = useMemo(() => {
     return lists
-      .filter((l) => l.status === "active")
+      .filter((l) => l.status === "active" || l.status === "in_progress")
       .filter((l) => (panel === "programadas" ? l.is_programmed : !l.is_programmed))
       .filter((l) => !query || l.title.toLowerCase().includes(query))
       .sort((a, b) => b.created_at.localeCompare(a.created_at));
   }, [lists, panel, query]);
 
+  const history = useMemo(
+    () => lists.filter((l) => l.status === "done").sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || "")),
+    [lists]
+  );
+
   const activeList = lists.find((l) => l.id === activeListId) || null;
   const activeEntries = listEntries.filter((e) => e.list_id === activeListId);
+
+  // Presionar Play: la primera vez pasa la lista a "en ejecución" (ícono
+  // verde). Reabrir una lista ya en ejecución solo continúa donde quedó.
+  const onPlay = (list: ListRecord) => {
+    if (list.status === "active") startListExecution(list.id);
+    setActiveListId(list.id);
+  };
 
   const addDraftItem = () => {
     const clean = draftItemText.trim();
@@ -103,15 +116,22 @@ export default function ListaScreen() {
           />
         </View>
 
-        <Segmented
-          testID="lista-panel-tabs"
-          options={[
-            { key: "listas", label: "Listas" },
-            { key: "programadas", label: "Programadas" },
-          ]}
-          value={panel}
-          onChange={(k) => setPanel(k as Panel)}
-        />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.sm }}>
+          <View style={{ flex: 1 }}>
+            <Segmented
+              testID="lista-panel-tabs"
+              options={[
+                { key: "listas", label: "Listas" },
+                { key: "programadas", label: "Programadas" },
+              ]}
+              value={panel}
+              onChange={(k) => setPanel(k as Panel)}
+            />
+          </View>
+          <Pressable style={[styles.historyBtn, { backgroundColor: colors.surfaceTertiary }]} onPress={() => setShowHistory(true)} testID="lista-history-button">
+            <Feather name="clock" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        </View>
       </View>
 
       <FlatList
@@ -131,10 +151,10 @@ export default function ListaScreen() {
                 </Text>
               ) : null}
             </View>
-            <Pressable onPress={() => setActiveListId(item.id)} hitSlop={8} testID={`lista-play-${item.id}`}>
-              <Feather name="play-circle" size={22} color={colors.brand} />
+            <Pressable onPress={() => onPlay(item)} hitSlop={8} testID={`lista-play-${item.id}`}>
+              <Feather name="play-circle" size={22} color={item.status === "in_progress" ? colors.success : colors.brand} />
             </Pressable>
-            <Pressable onPress={() => setActiveListId(item.id)} hitSlop={8} testID={`lista-edit-${item.id}`}>
+            <Pressable onPress={() => onPlay(item)} hitSlop={8} testID={`lista-edit-${item.id}`}>
               <Feather name="edit-2" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
             <Pressable onPress={() => deleteList(item.id)} hitSlop={8} testID={`lista-delete-${item.id}`}>
@@ -256,12 +276,51 @@ export default function ListaScreen() {
         onComplete={(p) => activeListId && completeList(activeListId, p)}
         onClose={() => setActiveListId(null)}
       />
+
+      <Modal visible={showHistory} transparent animationType="slide" onRequestClose={() => setShowHistory(false)}>
+        <View style={styles.backdrop}>
+          <View style={[styles.newCard, { backgroundColor: colors.surfaceSecondary, maxHeight: "75%" }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={[styles.cardTitle, { color: colors.onSurface }]}>Historial de Listas</Text>
+              <Pressable onPress={() => setShowHistory(false)} hitSlop={8} testID="lista-history-close">
+                <Feather name="x" size={22} color={colors.onSurfaceTertiary} />
+              </Pressable>
+            </View>
+            <FlatList
+              data={history}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ gap: SPACING.sm, paddingTop: SPACING.md }}
+              ListEmptyComponent={
+                <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, textAlign: "center", paddingVertical: SPACING.lg }}>
+                  Sin listas completadas todavía.
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <View style={[styles.card, { backgroundColor: colors.surfaceTertiary }]}>
+                  <Feather name="check-circle" size={18} color={colors.success} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    {item.completed_at ? (
+                      <Text style={[styles.cardMeta, { color: colors.onSurfaceTertiary }]}>
+                        {formatLocalDate(item.completed_at)} · {formatLocalTime(item.completed_at)}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   searchWrap: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md, height: 48 },
+  historyBtn: { width: 44, height: 44, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center" },
   searchInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
   label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
   card: { flexDirection: "row", alignItems: "center", gap: SPACING.md, padding: SPACING.md, borderRadius: RADIUS.md },

@@ -2,13 +2,16 @@ import { Redirect, useLocalSearchParams } from "expo-router";
 
 // Rutas destino de cada acceso rápido de la burbuja flotante nativa
 // (pandiario://quick/<accion>): ingreso/gasto/nota/lista abren su pestaña,
-// voice abre el modal de voz para hablar de inmediato.
+// voice abre el modal de voz para hablar de inmediato, budget abre Inicio
+// -la Calculadora de Presupuesto es un modal sin ruta propia, se abre
+// desde ahí con el botón que ya existe en la tarjeta Presupuesto-.
 const QUICK_ACTION_ROUTES: Record<string, string> = {
   ingreso: "/(tabs)/ingreso",
   gasto: "/(tabs)/gasto",
   nota: "/(tabs)/nota",
   lista: "/(tabs)/lista",
   voice: "/voice",
+  budget: "/(tabs)",
 };
 
 // Ruta formal para pandiario://quick/<accion>: registrarla explícitamente

@@ -1,0 +1,232 @@
+package __PACKAGE__.overlay
+
+import android.content.Context
+import android.database.sqlite.SQLiteDatabase
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import kotlin.math.max
+import kotlin.math.min
+
+// Acceso directo a la misma base SQLite que usa expo-sqlite del lado de
+// React Native (context.filesDir + "/SQLite/pandiario.db" -ver
+// expo-sqlite/android SQLiteModule.kt, constante "defaultDatabaseDirectory"-).
+// Esto permite que el panel flotante nativo (fuera del proceso de RN, sin
+// abrir la app en primer plano) lea y escriba listas/gastos/wallet
+// directamente; la próxima vez que la app se abra, DataContext vuelve a
+// leer esta misma base y recoge los cambios sin necesitar sincronización
+// especial. Todas las operaciones son de solo-mejor-esfuerzo: cualquier
+// excepción se traga (nunca debe tumbar un Service en primer plano) y
+// devuelve un resultado nulo/false que la UI del overlay interpreta como
+// "no se pudo, vuelve a intentar".
+object PanDb {
+  data class ListRow(val id: String, val title: String, val status: String)
+  data class EntryRow(val id: String, val text: String, val done: Boolean, val extra: Boolean)
+
+  private fun dbFile(context: Context): File = File(context.filesDir, "SQLite/pandiario.db")
+
+  fun isAvailable(context: Context): Boolean = dbFile(context).exists()
+
+  private fun open(context: Context): SQLiteDatabase? {
+    return try {
+      val file = dbFile(context)
+      if (!file.exists()) null else SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  private fun isoNow(): String {
+    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+    sdf.timeZone = TimeZone.getTimeZone("UTC")
+    return sdf.format(Date())
+  }
+
+  private fun newId(prefix: String): String = "${prefix}_${System.currentTimeMillis()}_${(Math.random() * 10000).toInt()}"
+
+  fun getInProgressList(context: Context): ListRow? {
+    val db = open(context) ?: return null
+    try {
+      db.rawQuery("SELECT id, title, status FROM lists WHERE status = 'in_progress' ORDER BY created_at DESC LIMIT 1", null).use { c ->
+        if (c.moveToFirst()) return ListRow(c.getString(0), c.getString(1), c.getString(2))
+      }
+      return null
+    } catch (_: Exception) {
+      return null
+    } finally {
+      db.close()
+    }
+  }
+
+  fun getList(context: Context, listId: String): ListRow? {
+    val db = open(context) ?: return null
+    try {
+      db.rawQuery("SELECT id, title, status FROM lists WHERE id = ?", arrayOf(listId)).use { c ->
+        if (c.moveToFirst()) return ListRow(c.getString(0), c.getString(1), c.getString(2))
+      }
+      return null
+    } catch (_: Exception) {
+      return null
+    } finally {
+      db.close()
+    }
+  }
+
+  fun getEntries(context: Context, listId: String): List<EntryRow> {
+    val db = open(context) ?: return emptyList()
+    val out = mutableListOf<EntryRow>()
+    try {
+      db.rawQuery("SELECT id, text, done, extra FROM list_entries WHERE list_id = ? ORDER BY created_at ASC", arrayOf(listId)).use { c ->
+        while (c.moveToNext()) {
+          out.add(EntryRow(c.getString(0), c.getString(1), c.getInt(2) != 0, c.getInt(3) != 0))
+        }
+      }
+    } catch (_: Exception) {
+    } finally {
+      db.close()
+    }
+    return out
+  }
+
+  fun toggleEntryDone(context: Context, entryId: String, done: Boolean) {
+    val db = open(context) ?: return
+    try {
+      db.execSQL("UPDATE list_entries SET done = ? WHERE id = ?", arrayOf(if (done) 1 else 0, entryId))
+    } catch (_: Exception) {
+    } finally {
+      db.close()
+    }
+  }
+
+  // Todo ítem agregado desde el panel flotante mientras la lista está en
+  // ejecución cuenta como "extra" (se ve en naranja en la app, igual que
+  // los agregados desde el modo Editar del modal en-app).
+  fun addEntry(context: Context, listId: String, text: String): Boolean {
+    val db = open(context) ?: return false
+    try {
+      db.execSQL(
+        "INSERT INTO list_entries (id, list_id, text, done, extra, created_at) VALUES (?, ?, ?, 0, 1, ?)",
+        arrayOf(newId("entry"), listId, text, isoNow())
+      )
+      return true
+    } catch (_: Exception) {
+      return false
+    } finally {
+      db.close()
+    }
+  }
+
+  // Bloqueo estructural: solo se permite borrar ítems 'extra'. Los ítems
+  // base (agregados antes de presionar Play) nunca se pueden quitar ni
+  // renombrar desde aquí -la condición "extra = 1" en el WHERE hace que el
+  // intento sea un no-op silencioso sobre un ítem base, no un error-.
+  fun deleteExtraEntry(context: Context, entryId: String): Boolean {
+    val db = open(context) ?: return false
+    try {
+      return db.delete("list_entries", "id = ? AND extra = 1", arrayOf(entryId)) > 0
+    } catch (_: Exception) {
+      return false
+    } finally {
+      db.close()
+    }
+  }
+
+  fun getOpenCycleId(context: Context): String? {
+    val db = open(context) ?: return null
+    try {
+      db.rawQuery("SELECT id FROM cycles WHERE end_date IS NULL ORDER BY start_date DESC LIMIT 1", null).use { c ->
+        if (c.moveToFirst()) return c.getString(0)
+      }
+      return null
+    } catch (_: Exception) {
+      return null
+    } finally {
+      db.close()
+    }
+  }
+
+  // Liquida la compra: inserta el gasto "Lista de compras", aplica su
+  // efecto sobre Cartera/Caja Chica/Ahorro (con soporte Mixto) y sobre el
+  // cupo de Presupuesto si el origen es 'vital'/'secundario', y archiva la
+  // lista como 'done'. Replica exactamente applyTxEffect + completeList de
+  // src/context/DataContext.tsx para que el saldo quede consistente sin
+  // importar si el gasto se registró desde la app o desde este panel
+  // nativo. Todo ocurre dentro de una transacción SQLite: o se aplica
+  // completo, o no se aplica nada (nunca deja al wallet a medio actualizar).
+  fun finalizePurchase(
+    context: Context,
+    listId: String,
+    amount: Double,
+    method: String,
+    cashAmount: Double?,
+    origin: String,
+    category: String,
+    note: String?
+  ): Boolean {
+    val cycleId = getOpenCycleId(context) ?: return false
+    val db = open(context) ?: return false
+    try {
+      db.beginTransaction()
+
+      val txId = newId("tx")
+      val now = isoNow()
+      db.execSQL(
+        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?)",
+        arrayOf(txId, amount, method, cashAmount, category, origin, note, now, cycleId)
+      )
+
+      db.rawQuery("SELECT cartera_efectivo, cartera_digital, caja_chica, ahorro FROM wallet WHERE id = 'main'", null).use { c ->
+        if (c.moveToFirst()) {
+          var carteraEfectivo = c.getDouble(0)
+          var carteraDigital = c.getDouble(1)
+          var cajaChica = c.getDouble(2)
+          var ahorro = c.getDouble(3)
+          val delta = -amount // gasto: siempre resta.
+
+          when {
+            origin == "caja_chica" -> cajaChica += delta
+            origin == "ahorro" -> ahorro += delta
+            method == "mixto" -> {
+              val cash = min(max(cashAmount ?: 0.0, 0.0), amount)
+              val digital = amount - cash
+              carteraEfectivo -= cash
+              carteraDigital -= digital
+            }
+            method == "efectivo" -> carteraEfectivo += delta
+            else -> carteraDigital += delta
+          }
+
+          db.execSQL(
+            "UPDATE wallet SET cartera_efectivo = ?, cartera_digital = ?, caja_chica = ?, ahorro = ? WHERE id = 'main'",
+            arrayOf(carteraEfectivo, carteraDigital, cajaChica, ahorro)
+          )
+
+          if (origin == "vital" || origin == "secundario") {
+            db.rawQuery("SELECT id, amount FROM budget_categories WHERE type = ? AND name = ?", arrayOf(origin, category)).use { c2 ->
+              if (c2.moveToFirst()) {
+                val catId = c2.getString(0)
+                val nextAmount = c2.getDouble(1) + delta
+                db.execSQL("UPDATE budget_categories SET amount = ? WHERE id = ?", arrayOf(nextAmount, catId))
+              }
+            }
+          }
+        }
+      }
+
+      db.execSQL("UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?", arrayOf(now, listId))
+
+      db.setTransactionSuccessful()
+      return true
+    } catch (_: Exception) {
+      return false
+    } finally {
+      try {
+        db.endTransaction()
+      } catch (_: Exception) {
+      }
+      db.close()
+    }
+  }
+}

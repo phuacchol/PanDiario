@@ -33,6 +33,7 @@ export default function NotaScreen() {
   const [leadMinutes, setLeadMinutes] = useState("15");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const query = search.trim().toLowerCase();
 
@@ -52,6 +53,15 @@ export default function NotaScreen() {
     overdue.sort((a, b) => new Date(b.remind_at || 0).getTime() - new Date(a.remind_at || 0).getTime());
     return [...active, ...overdue];
   }, [notes, query]);
+
+  // Historial permanente: notas/recordatorios ya marcados como cumplidos,
+  // ordenados cronológicamente por fecha/hora de cumplimiento -separado
+  // por pestaña, igual que la vista activa-.
+  const historyItems = useMemo(() => {
+    return notes
+      .filter((n) => n.done && (panel === "notas" ? !n.is_reminder : n.is_reminder))
+      .sort((a, b) => (b.completed_at || "").localeCompare(a.completed_at || ""));
+  }, [notes, panel]);
 
   const openNewEditor = (initialKind: "nota" | "recordatorio") => {
     setEditingId(null);
@@ -119,15 +129,22 @@ export default function NotaScreen() {
           />
         </View>
 
-        <Segmented
-          testID="nota-panel-tabs"
-          options={[
-            { key: "notas", label: "Notas" },
-            { key: "recordatorios", label: "Recordatorios" },
-          ]}
-          value={panel}
-          onChange={(k) => setPanel(k as Panel)}
-        />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.sm }}>
+          <View style={{ flex: 1 }}>
+            <Segmented
+              testID="nota-panel-tabs"
+              options={[
+                { key: "notas", label: "Notas" },
+                { key: "recordatorios", label: "Recordatorios" },
+              ]}
+              value={panel}
+              onChange={(k) => setPanel(k as Panel)}
+            />
+          </View>
+          <Pressable style={[styles.historyBtn, { backgroundColor: colors.surfaceTertiary }]} onPress={() => setShowHistory(true)} testID="nota-history-button">
+            <Feather name="clock" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        </View>
       </View>
 
       <FlatList
@@ -263,12 +280,54 @@ export default function NotaScreen() {
         }}
         onRequestClose={() => setShowTimePicker(false)}
       />
+
+      <Modal visible={showHistory} transparent animationType="slide" onRequestClose={() => setShowHistory(false)}>
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { backgroundColor: colors.surface, maxHeight: "75%" }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>
+                {panel === "notas" ? "Historial de Notas" : "Historial de Recordatorios"}
+              </Text>
+              <Pressable onPress={() => setShowHistory(false)} hitSlop={8} testID="nota-history-close">
+                <Feather name="x" size={22} color={colors.onSurfaceTertiary} />
+              </Pressable>
+            </View>
+            <FlatList
+              data={historyItems}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ gap: SPACING.sm }}
+              ListEmptyComponent={
+                <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, textAlign: "center", paddingVertical: SPACING.lg }}>
+                  {panel === "notas" ? "Sin notas completadas todavía." : "Sin recordatorios cumplidos todavía."}
+                </Text>
+              }
+              renderItem={({ item }) => (
+                <View style={[styles.noteCard, { backgroundColor: colors.surfaceTertiary }]}>
+                  <Feather name="check-circle" size={18} color={colors.success} />
+                  <View style={{ flex: 1 }}>
+                    {item.subject ? <Text style={[styles.noteSubject, { color: colors.onSurface }]}>{item.subject}</Text> : null}
+                    <Text style={[styles.noteText, { color: item.subject ? colors.onSurfaceTertiary : colors.onSurface }]} numberOfLines={2}>
+                      {item.text}
+                    </Text>
+                    {item.completed_at ? (
+                      <Text style={[styles.noteMeta, { color: colors.onSurfaceTertiary }]}>
+                        {formatLocalDate(item.completed_at)} · {formatLocalTime(item.completed_at)}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   searchWrap: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md, height: 48 },
+  historyBtn: { width: 44, height: 44, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center" },
   searchInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
   label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
   noteCard: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADIUS.md },

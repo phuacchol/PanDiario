@@ -78,7 +78,7 @@ function withOverlayBubbleNativeSources(config) {
       fs.mkdirSync(targetDir, { recursive: true });
 
       const srcDir = path.join(__dirname, "android-native");
-      const files = fs.readdirSync(srcDir);
+      const files = fs.readdirSync(srcDir).filter((f) => f.endsWith(".kt.template"));
       for (const file of files) {
         const raw = fs.readFileSync(path.join(srcDir, file), "utf8");
         const replaced = raw.split("__PACKAGE__").join(pkg);
@@ -91,9 +91,45 @@ function withOverlayBubbleNativeSources(config) {
   ]);
 }
 
+// Ícono oficial de la burbuja: frontend/assets/images/pandiario/pan-burbuja.png
+// (recorte circular, transparencia limpia). Se copia tal cual a
+// res/drawable/pan_burbuja.png para que el Kotlin de la burbuja lo cargue
+// como recurso nativo (R.drawable no es estable entre builds de Expo, así
+// que un nombre de archivo fijo en res/drawable/ es la forma confiable de
+// referenciarlo desde fuera de React Native). Si el asset todavía no existe
+// en el repo, se usa pan-avatar.png como respaldo -mismo estilo circular de
+// la mascota- para que el build nunca falle por un archivo faltante.
+function withOverlayBubbleIcon(config) {
+  return withDangerousMod(config, [
+    "android",
+    async (config) => {
+      const projectRoot = config.modRequest.projectRoot;
+      const officialSrc = path.join(projectRoot, "assets", "images", "pandiario", "pan-burbuja.png");
+      const fallbackSrc = path.join(projectRoot, "assets", "images", "pandiario", "pan-avatar.png");
+      const src = fs.existsSync(officialSrc) ? officialSrc : fallbackSrc;
+
+      if (!fs.existsSync(src)) return config;
+
+      const drawableDir = path.join(config.modRequest.platformProjectRoot, "app", "src", "main", "res", "drawable");
+      fs.mkdirSync(drawableDir, { recursive: true });
+      fs.copyFileSync(src, path.join(drawableDir, "pan_burbuja.png"));
+
+      if (src === fallbackSrc) {
+        console.warn(
+          "[withOverlayBubble] pan-burbuja.png no existe todavía en assets/images/pandiario/; " +
+            "se usó pan-avatar.png como ícono provisional de la burbuja."
+        );
+      }
+
+      return config;
+    },
+  ]);
+}
+
 module.exports = function withOverlayBubble(config) {
   config = withOverlayBubbleManifest(config);
   config = withOverlayBubbleMainApplication(config);
   config = withOverlayBubbleNativeSources(config);
+  config = withOverlayBubbleIcon(config);
   return config;
 };
