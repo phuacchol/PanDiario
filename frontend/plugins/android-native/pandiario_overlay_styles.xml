@@ -4,14 +4,20 @@
   Ingresos/Gastos/Notas/Lista nueva/Hablar: reutiliza las pantallas React
   Native ya existentes (ingreso.tsx, gasto.tsx, nota.tsx, lista.tsx,
   voice.tsx) dentro de un alias de MainActivity con este tema, en vez de
-  reescribirlas en Kotlin. Extiende un tema de AppCompat "Dialog" real y
-  estable (siempre presente: RN/Expo dependen de androidx.appcompat), así
-  que no depende de adivinar el nombre exacto del tema que Expo genera
-  para la Activity principal -evita romper el resto del build si ese
-  nombre cambia entre versiones-.
+  reescribirlas en Kotlin.
+
+  Extiende un tema de PLATAFORMA (prefijo android:, del propio SDK de
+  Android) en vez de uno de una librería (AppCompat/Material Components):
+  el build #9 falló en AAPT con "resource style/Theme.AppCompat.Light.
+  Dialog.NoActionBar not found" porque ese recurso de AppCompat no queda
+  expuesto en el grafo de dependencias de este proyecto al momento de
+  linkear recursos. Un tema android:Theme.* viene compilado dentro del
+  propio framework de Android (framework-res.apk), así que SIEMPRE está
+  disponible sin importar qué librerías de UI declare o no declare el
+  proyecto -no requiere agregar ninguna dependencia a build.gradle-.
 -->
 <resources>
-  <style name="Theme.PanDiario.FloatingDialog" parent="Theme.AppCompat.Light.Dialog.NoActionBar">
+  <style name="Theme.PanDiario.FloatingDialog" parent="android:Theme.DeviceDefault.Light.Dialog.NoActionBar">
     <item name="android:windowIsFloating">true</item>
     <item name="android:windowMinWidthMajor">92%</item>
     <item name="android:windowMinWidthMinor">92%</item>
