@@ -322,7 +322,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       walletRow = await db.getFirstAsync<any>(`SELECT * FROM wallet WHERE id = 'main'`).catch(() => null);
     }
 
-    let openCycle = await db.getFirstAsync<any>(`SELECT * FROM cycles WHERE end_date IS NULL ORDER BY start_date DESC LIMIT 1`).catch(() => null);
+    // Mismo bug que ya se había corregido arriba para la wallet, pero acá
+    // seguía sin distinguir "no hay ciclo abierto todavía" (cuenta nueva)
+    // de "la consulta falló" (ej. SQLITE_BUSY momentáneo): un error
+    // transitorio de lectura -justo al abrir la app mientras la burbuja
+    // escribe- hacía que este código creyera que no existía ningún ciclo
+    // abierto y sembrara uno NUEVO y vacío, aunque el real siguiera
+    // intacto en disco. Esa fila fantasma es indistinguible en pantalla de
+    // "cuenta recién creada": todo lo que la burbuja ya había guardado
+    // (que sigue atado al ciclo real) deja de encontrar coincidencia con
+    // este openCycleId falso, y cualquier cosa que el usuario registre
+    // durante esa sesión queda atada al ciclo fantasma -que nunca vuelve a
+    // aparecer una vez que un refresh posterior sí logra leer el ciclo
+    // real, dando la sensación de que "se eliminó" lo recién agregado-.
+    let openCycleReadFailed = false;
+    let openCycle: any = null;
+    try {
+      openCycle = await db.getFirstAsync<any>(`SELECT * FROM cycles WHERE end_date IS NULL ORDER BY start_date DESC LIMIT 1`);
+    } catch {
+      openCycleReadFailed = true;
+    }
+    if (openCycleReadFailed) return { walletRow, openCycle: null, ok: false };
+
     if (!openCycle) {
       const id = newId("cycle");
       const now = todayISO();
