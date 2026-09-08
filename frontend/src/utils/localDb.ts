@@ -10,6 +10,13 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase | null> {
     initPromise = (async () => {
       try {
         const db = await SQLite.openDatabaseAsync("pandiario.db");
+        // Diagnóstico: confirma en logcat (adb logcat | grep PANDIARIO_DB)
+        // que esta ruta absoluta coincide exactamente con la que loguea
+        // PanDb.kt.template al abrir su propia conexión -ambas fórmulas de
+        // ruta (context.filesDir + "/SQLite/pandiario.db") son idénticas
+        // por diseño, pero esto lo confirma en un dispositivo real en vez
+        // de asumirlo-.
+        console.log("PANDIARIO_DB_RN", db.databasePath);
         await initDb(db);
         dbInstance = db;
         return db;

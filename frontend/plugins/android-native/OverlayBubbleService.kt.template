@@ -18,7 +18,9 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
@@ -78,6 +80,21 @@ class OverlayBubbleService : Service() {
   private var windowManager: WindowManager? = null
   private var currentView: View? = null
   private var currentParams: WindowManager.LayoutParams? = null
+
+  // Todo lo que toca PanDb (open/transacción/checkpoint/close) es I/O de
+  // disco síncrono; disparado directamente desde un click listener corría
+  // en este mismo hilo -el principal del Service, compartido con el de la
+  // app- y lo bloqueaba por completo mientras duraba la escritura. Eso es
+  // lo que se veía en el video como toques de "Guardar"/"Confirmar" que
+  // tardaban o parecían necesitar varios intentos: cada toque adicional
+  // quedaba encolado por el sistema de entrada y se entregaba recién
+  // cuando el hilo principal se liberaba -para entonces la bandera
+  // *Submitting ya se había reseteado a false tras la primera escritura
+  // (síncrona, ya terminada), así que un toque encolado durante el
+  // bloqueo podía colarse como un registro duplicado real en vez de ser
+  // descartado-. Ahora PanDb.* corre en este hilo de fondo y solo la
+  // actualización de la vista (mainHandler.post) vuelve al principal.
+  private val mainHandler = Handler(Looper.getMainLooper())
 
   // Menú desplegable: una segunda ventana superpuesta, independiente de la
   // burbuja (que nunca se retira mientras el menú está abierto -así el
@@ -588,7 +605,7 @@ class OverlayBubbleService : Service() {
 
     root.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12)) })
     val confirmLabel = if (genSubmitting) "Guardando..." else if (kind == "lista_new") "Crear" else "Guardar"
-    root.addView(actionButton(confirmLabel, COLOR_BRAND) { confirmGenericPanel(kind) })
+    root.addView(actionButton(confirmLabel, COLOR_BRAND, enabled = !genSubmitting) { confirmGenericPanel(kind) })
 
     return root
   }
@@ -814,6 +831,21 @@ class OverlayBubbleService : Service() {
   }
 
   // Bloqueo estricto contra doble pulsación, igual que confirmSettlement.
+  // El propio I/O de PanDb corre siempre en un hilo de fondo (ver
+  // mainHandler más arriba); solo `after` -que decide si colapsar la
+  // burbuja o volver a pintar el formulario con el error- se reencola en
+  // el hilo principal, porque toca la vista (WindowManager).
+  private fun runSubmit(work: () -> Boolean, after: (ok: Boolean) -> Unit) {
+    Thread {
+      val ok = try {
+        work()
+      } catch (_: Exception) {
+        false
+      }
+      mainHandler.post { after(ok) }
+    }.start()
+  }
+
   private fun confirmGenericPanel(kind: String) {
     if (genSubmitting) return
     when (kind) {
@@ -823,13 +855,12 @@ class OverlayBubbleService : Service() {
         genSubmitting = true
         renderGenericPanel()
         val cash = if (genMethod == "mixto") genCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0 else null
-        val ok = try {
-          PanDb.addIncome(this, amount, genMethod, cash, genCategory.trim().ifEmpty { "Otros" }, genNote.trim().ifEmpty { null })
-        } catch (_: Exception) {
-          false
+        val category = genCategory.trim().ifEmpty { "Otros" }
+        val note = genNote.trim().ifEmpty { null }
+        runSubmit({ PanDb.addIncome(this, amount, genMethod, cash, category, note) }) { ok ->
+          genSubmitting = false
+          if (ok) collapseToBubble() else renderGenericPanel()
         }
-        genSubmitting = false
-        if (ok) collapseToBubble() else renderGenericPanel()
       }
       "gasto" -> {
         val amount = genAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
@@ -837,39 +868,34 @@ class OverlayBubbleService : Service() {
         genSubmitting = true
         renderGenericPanel()
         val cash = if (genMethod == "mixto") genCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0 else null
-        val ok = try {
-          PanDb.addExpense(this, amount, genMethod, cash, genOrigin, genCategory.trim().ifEmpty { "Otros" }, genNote.trim().ifEmpty { null })
-        } catch (_: Exception) {
-          false
+        val category = genCategory.trim().ifEmpty { "Otros" }
+        val note = genNote.trim().ifEmpty { null }
+        runSubmit({ PanDb.addExpense(this, amount, genMethod, cash, genOrigin, category, note) }) { ok ->
+          genSubmitting = false
+          if (ok) collapseToBubble() else renderGenericPanel()
         }
-        genSubmitting = false
-        if (ok) collapseToBubble() else renderGenericPanel()
       }
       "nota" -> {
         val text = genText.trim()
         if (text.isEmpty()) return
         genSubmitting = true
         renderGenericPanel()
-        val ok = try {
-          PanDb.addNote(this, genSubject.trim(), text)
-        } catch (_: Exception) {
-          false
+        val subject = genSubject.trim()
+        runSubmit({ PanDb.addNote(this, subject, text) }) { ok ->
+          genSubmitting = false
+          if (ok) collapseToBubble() else renderGenericPanel()
         }
-        genSubmitting = false
-        if (ok) collapseToBubble() else renderGenericPanel()
       }
       else -> {
         val title = genTitle.trim()
         if (title.isEmpty()) return
         genSubmitting = true
         renderGenericPanel()
-        val ok = try {
-          PanDb.createList(this, title, genDraftItems.toList()) != null
-        } catch (_: Exception) {
-          false
+        val items = genDraftItems.toList()
+        runSubmit({ PanDb.createList(this, title, items) != null }) { ok ->
+          genSubmitting = false
+          if (ok) collapseToBubble() else renderGenericPanel()
         }
-        genSubmitting = false
-        if (ok) collapseToBubble() else renderGenericPanel()
       }
     }
   }
@@ -1178,7 +1204,7 @@ class OverlayBubbleService : Service() {
       execRegisterExpense -> "Confirmar y registrar gasto"
       else -> "Finalizar sin registrar gasto"
     }
-    col.addView(actionButton(confirmLabel, if (execRegisterExpense) COLOR_SUCCESS else COLOR_BRAND) {
+    col.addView(actionButton(confirmLabel, if (execRegisterExpense) COLOR_SUCCESS else COLOR_BRAND, enabled = !execSubmitting) {
       confirmSettlement(list)
     })
 
@@ -1186,17 +1212,20 @@ class OverlayBubbleService : Service() {
   }
 
   // Bloqueo estricto contra doble pulsación: mientras execSubmitting es
-  // true, cualquier toque adicional sobre el botón se ignora hasta que la
-  // escritura en SQLite termine (éxito o error), evitando duplicar el gasto.
+  // true, el botón queda deshabilitado a nivel de View (ver actionButton)
+  // y la escritura en SQLite corre en un hilo de fondo (runSubmit) para
+  // que el toque adicional nunca quede encolado esperando a que el hilo
+  // principal se libere -evitando duplicar el gasto.
   private fun confirmSettlement(list: PanDb.ListRow) {
     if (execSubmitting) return
 
     if (!execRegisterExpense) {
       execSubmitting = true
       renderExecutionPanel()
-      val archived = try { PanDb.archiveListWithoutExpense(this, list.id) } catch (_: Exception) { false }
-      execSubmitting = false
-      if (archived) collapseToBubble() else renderExecutionPanel()
+      runSubmit({ PanDb.archiveListWithoutExpense(this, list.id) }) { archived ->
+        execSubmitting = false
+        if (archived) collapseToBubble() else renderExecutionPanel()
+      }
       return
     }
 
@@ -1211,20 +1240,16 @@ class OverlayBubbleService : Service() {
     val userNote = execNote.trim()
     val note = if (userNote.isNotEmpty()) "$userNote ($codeTag)" else codeTag
 
-    val ok = try {
-      PanDb.finalizePurchase(this, list.id, amount, execMethod, cash, execOrigin, "Lista de compras", note)
-    } catch (_: Exception) {
-      false
-    }
-
-    execSubmitting = false
-    if (ok) {
-      collapseToBubble()
-    } else {
-      // Falló la escritura (base no disponible, etc.): se queda en el
-      // formulario para que el usuario pueda reintentar, en vez de perder
-      // silenciosamente la liquidación.
-      renderExecutionPanel()
+    runSubmit({ PanDb.finalizePurchase(this, list.id, amount, execMethod, cash, execOrigin, "Lista de compras", note) }) { ok ->
+      execSubmitting = false
+      if (ok) {
+        collapseToBubble()
+      } else {
+        // Falló la escritura (base no disponible, etc.): se queda en el
+        // formulario para que el usuario pueda reintentar, en vez de perder
+        // silenciosamente la liquidación.
+        renderExecutionPanel()
+      }
     }
   }
 
@@ -1307,18 +1332,29 @@ class OverlayBubbleService : Service() {
     return grid
   }
 
-  private fun actionButton(label: String, colorHex: String, onClick: () -> Unit): View {
+  // enabled=false bloquea el toque a nivel de View (isClickable=false), no
+  // solo con una bandera lógica: mientras la escritura en SQLite corre en
+  // segundo plano (ver confirmGenericPanel/confirmSettlement), el sistema
+  // de entrada de Android descarta cualquier toque adicional sobre este
+  // botón en vez de encolarlo para cuando el hilo principal quede libre
+  // -antes, con el guard solo lógico (`if (submitting) return`) y la
+  // escritura corriendo en el hilo principal, una segunda pulsación
+  // encolada podía llegar recién cuando la primera ya había terminado y
+  // reseteado la bandera, colándose como un registro duplicado real-.
+  private fun actionButton(label: String, colorHex: String, enabled: Boolean = true, onClick: () -> Unit): View {
     return TextView(this).apply {
       text = label
       setTextColor(Color.WHITE)
       textSize = 14f
       gravity = Gravity.CENTER
+      alpha = if (enabled) 1f else 0.6f
+      isClickable = enabled
       setPadding(dp(12), dp(12), dp(12), dp(12))
       background = GradientDrawable().apply {
         cornerRadius = dp(12).toFloat()
         setColor(Color.parseColor(colorHex))
       }
-      setOnClickListener { onClick() }
+      setOnClickListener { if (enabled) onClick() }
     }
   }
 

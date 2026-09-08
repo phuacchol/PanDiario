@@ -2,6 +2,7 @@ package __PACKAGE__.overlay
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.util.Log
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,6 +50,24 @@ object PanDb {
 
   fun isAvailable(context: Context): Boolean = dbFile(context).exists()
 
+  // Diagnóstico: confirma en logcat (adb logcat | grep PANDIARIO_DB) que
+  // esta ruta absoluta coincide exactamente con la que loguea localDb.ts
+  // del lado de React Native (db.databasePath) -ambas fórmulas de ruta
+  // (context.filesDir + "/SQLite/pandiario.db") son idénticas por diseño,
+  // pero esto lo confirma en un dispositivo real en vez de asumirlo-.
+  // Solo se loguea una vez (no en cada open()) para no saturar logcat con
+  // cada escritura nativa.
+  @Volatile
+  private var loggedPath = false
+  private fun logPathOnce(context: Context) {
+    if (loggedPath) return
+    loggedPath = true
+    try {
+      Log.d("PANDIARIO_DB", "PanDb path: ${dbFile(context).absolutePath} (canonical: ${dbFile(context).canonicalPath})")
+    } catch (_: Exception) {
+    }
+  }
+
   // busy_timeout: si esta conexión encuentra la base bloqueada por la
   // conexión de React Native (o viceversa), SQLite reintenta en silencio
   // hasta 3s en vez de lanzar "database is locked" de inmediato. Sin
@@ -59,6 +78,7 @@ object PanDb {
     return try {
       val file = dbFile(context)
       if (!file.exists()) return null
+      logPathOnce(context)
       val db = SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
       try {
         db.rawQuery("PRAGMA busy_timeout = 3000;", null)?.close()
