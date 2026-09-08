@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Modal, FlatList } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Modal, FlatList, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -33,7 +33,19 @@ export default function Home() {
     updateBudgetCategoryAmount,
     deleteBudgetCategory,
     deleteCycle,
+    refresh,
   } = useData();
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefreshPress = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const [showAhorrar, setShowAhorrar] = useState(false);
   const [showPagaron, setShowPagaron] = useState(false);
@@ -84,9 +96,14 @@ export default function Home() {
               </Text>
             </View>
           </View>
-          <Pressable onPress={() => router.push("/settings")} style={[styles.settingsBtn, { backgroundColor: colors.surfaceTertiary }]} testID="home-settings-button">
-            <Feather name="settings" size={20} color={colors.onSurface} />
-          </Pressable>
+          <View style={styles.headerRightGroup}>
+            <Pressable onPress={onRefreshPress} disabled={refreshing} style={[styles.settingsBtn, { backgroundColor: colors.surfaceTertiary }]} testID="home-refresh-button">
+              {refreshing ? <ActivityIndicator size="small" color={colors.brand} /> : <Feather name="refresh-cw" size={20} color={colors.onSurface} />}
+            </Pressable>
+            <Pressable onPress={() => router.push("/settings")} style={[styles.settingsBtn, { backgroundColor: colors.surfaceTertiary }]} testID="home-settings-button">
+              <Feather name="settings" size={20} color={colors.onSurface} />
+            </Pressable>
+          </View>
         </View>
 
         {/* Banner de recordatorio más próximo */}
@@ -307,6 +324,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
+  headerRightGroup: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
   avatar: { width: 44, height: 44 },
   greeting: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm },
   userName: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg, maxWidth: 180 },
