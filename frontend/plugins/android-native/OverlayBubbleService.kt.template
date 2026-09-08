@@ -1040,9 +1040,8 @@ class OverlayBubbleService : Service() {
         setOnClickListener {
           val clean = execNewItemText.trim()
           if (clean.isNotEmpty()) {
-            try { PanDb.addEntry(this@OverlayBubbleService, list.id, clean) } catch (_: Exception) {}
             execNewItemText = ""
-            renderExecutionPanel()
+            runSubmit({ PanDb.addEntry(this@OverlayBubbleService, list.id, clean) }) { renderExecutionPanel() }
           }
         }
       })
@@ -1078,8 +1077,7 @@ class OverlayBubbleService : Service() {
         textSize = 16f
         setPadding(0, 0, dp(10), 0)
         setOnClickListener {
-          try { PanDb.toggleEntryDone(this@OverlayBubbleService, entry.id, !entry.done) } catch (_: Exception) {}
-          renderExecutionPanel()
+          runSubmit({ PanDb.toggleEntryDone(this@OverlayBubbleService, entry.id, !entry.done); true }) { renderExecutionPanel() }
         }
       })
     }
@@ -1098,8 +1096,7 @@ class OverlayBubbleService : Service() {
         textSize = 14f
         setPadding(dp(10), dp(4), dp(4), dp(4))
         setOnClickListener {
-          try { PanDb.deleteExtraEntry(this@OverlayBubbleService, entry.id) } catch (_: Exception) {}
-          renderExecutionPanel()
+          runSubmit({ PanDb.deleteExtraEntry(this@OverlayBubbleService, entry.id) }) { renderExecutionPanel() }
         }
       })
     }
