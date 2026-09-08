@@ -41,6 +41,14 @@ export type Transaction = {
   // resto hasta `amount` se asume en transferencia).
   cashAmount: number | null;
   category: string | null;
+  // Referencia estable a budget_categories.id, fijada al crear la
+  // transacción (ver ensureBudgetCategoryId). Antes solo se guardaba el
+  // nombre de texto (`category`) y se volvía a buscar la categoría por
+  // "type + name" cada vez que había que revertir/reaplicar su cupo -si el
+  // usuario renombraba la categoría después, las transacciones antiguas
+  // dejaban de encontrarla y el cupo quedaba desalineado en silencio.
+  // Puede ser null en filas viejas creadas antes de esta columna.
+  categoryId: string | null;
   origin: Origin;
   note: string | null;
   created_at: string;
@@ -217,6 +225,7 @@ function mapTx(row: any): Transaction {
     method: row.method || null,
     cashAmount: row.cash_amount != null ? Number(row.cash_amount) : null,
     category: row.category || null,
+    categoryId: row.category_id || null,
     origin: (row.origin || "cuenta") as Origin,
     note: row.note || null,
     created_at: row.created_at,
@@ -350,6 +359,31 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return { walletRow, openCycle, ok: true };
   }, []);
 
+  // Busca la categoría de presupuesto por type+name y devuelve su id; si no
+  // existe, la crea con cupo 0 y devuelve el id nuevo -mismo comportamiento
+  // que ensureCategory en PanDb.kt.template-. Consulta la base directamente
+  // en vez de confiar en el estado `budgetCategories` en memoria (que
+  // podría estar desactualizado) para no crear duplicados. Todo
+  // addIncome/addExpense/updateTransaction pasa por aquí, así que da igual
+  // si la categoría se escribió por un formulario de la app, la burbuja o
+  // el liquidado de una lista: siempre queda una fila real con un id
+  // estable para que applyTxEffect pueda encontrarla más tarde aunque el
+  // usuario la renombre después.
+  const ensureBudgetCategoryId = useCallback(
+    async (db: NonNullable<Awaited<ReturnType<typeof getDb>>>, type: BudgetType, name: string): Promise<string | null> => {
+      const clean = (name || "").trim();
+      if (!clean) return null;
+      const existing = await db.getFirstAsync<any>(`SELECT id FROM budget_categories WHERE type = ? AND name = ?`, [type, clean]).catch(() => null);
+      if (existing) return existing.id;
+      const id = newId("cat");
+      const now = todayISO();
+      await db.runAsync(`INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, ?, ?, 0, ?)`, [id, type, clean, now]).catch(() => {});
+      setBudgetCategories((prev) => (prev.some((c) => c.id === id) ? prev : [...prev, { id, type, name: clean, amount: 0, created_at: now }]));
+      return id;
+    },
+    []
+  );
+
   const refresh = useCallback(async () => {
     const db = await getDb();
     if (!db) {
@@ -476,7 +510,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // si el origen es un presupuesto, sobre el cupo de esa categoría. `sign`
   // +1 para aplicar el movimiento, -1 para revertirlo (edición/eliminación).
   const applyTxEffect = useCallback(
-    (kind: TxKind, amount: number, method: Method, origin: Origin, category: string | null, sign: 1 | -1, cashAmount?: number | null) => {
+    (kind: TxKind, amount: number, method: Method, origin: Origin, category: string | null, sign: 1 | -1, cashAmount?: number | null, categoryId?: string | null) => {
       const txSign = kind === "ingreso" ? 1 : -1;
       const delta = sign * txSign * amount;
 
@@ -503,13 +537,23 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       });
 
       if ((origin === "vital" || origin === "secundario") && category) {
+        // Se prefiere emparejar por categoryId (estable, fijado al crear la
+        // transacción) en vez de por "type + name": si el usuario renombra
+        // la categoría después, el nombre de texto de una transacción
+        // vieja deja de coincidir, pero el id sigue apuntando a la
+        // categoría real -así revertir/reaplicar su cupo (editar, borrar)
+        // sigue encontrándola-. Las filas creadas antes de esta columna no
+        // tienen categoryId (null): para esas se mantiene el fallback por
+        // nombre, único dato que tenían.
+        //
         // Sin clamp a 0: un gasto que agota el cupo debe poder dejarlo en
         // negativo (señal real de sobregiro) para que revertir el mismo
         // efecto -al editar o eliminar la transacción- siempre devuelva el
         // cupo exacto anterior, sin importar el orden de las operaciones.
         setBudgetCategories((prev) =>
           prev.map((c) => {
-            if (c.type !== origin || c.name !== category) return c;
+            const matches = categoryId ? c.id === categoryId : c.type === origin && c.name === category;
+            if (!matches) return c;
             const nextAmount = c.amount + delta;
             const db2 = getDb();
             db2.then((db) => db?.runAsync(`UPDATE budget_categories SET amount = ? WHERE id = ?`, [nextAmount, c.id]).catch(() => {}));
@@ -530,20 +574,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const category = p.category || "Otros";
       const cashAmount = p.method === "mixto" ? Number(p.cashAmount) || 0 : null;
 
+      const db = await getDb();
+      // "ingreso" no tiene cupo (ver applyTxEffect), pero igual se asegura
+      // la fila de categoría para clasificación/autocomplete -mismo
+      // comportamiento que el panel nativo de la burbuja (ensureCategory
+      // en PanDb.kt)-, y para que la transacción quede con un categoryId
+      // estable desde el momento en que se crea.
+      const categoryId = db ? await ensureBudgetCategoryId(db, "ingreso", category) : null;
+
       applyTxEffect("ingreso", amount, p.method, "cuenta", null, 1, cashAmount);
 
-      const newTx: Transaction = { id, kind: "ingreso", amount, method: p.method, cashAmount, category, origin: "cuenta", note: p.note || null, created_at: now, cycle_id: openCycleId };
+      const newTx: Transaction = { id, kind: "ingreso", amount, method: p.method, cashAmount, category, categoryId, origin: "cuenta", note: p.note || null, created_at: now, cycle_id: openCycleId };
       setTransactions((prev) => [newTx, ...prev].sort((a, b) => b.created_at.localeCompare(a.created_at)));
 
-      const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, 'cuenta', ?, ?, ?)`,
-          [id, amount, p.method, cashAmount, category, p.note || null, now, openCycleId]
+          `INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, ?, 'cuenta', ?, ?, ?)`,
+          [id, amount, p.method, cashAmount, category, categoryId, p.note || null, now, openCycleId]
         ).catch(() => {});
       }
     },
-    [openCycleId, applyTxEffect]
+    [openCycleId, applyTxEffect, ensureBudgetCategoryId]
   );
 
   const addExpense = useCallback(
@@ -556,20 +607,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const origin = p.origin || "cuenta";
       const cashAmount = p.method === "mixto" ? Number(p.cashAmount) || 0 : null;
 
-      applyTxEffect("gasto", amount, p.method, origin, category, 1, cashAmount);
+      const db = await getDb();
+      const categoryId = db && (origin === "vital" || origin === "secundario") ? await ensureBudgetCategoryId(db, origin, category) : null;
 
-      const newTx: Transaction = { id, kind: "gasto", amount, method: p.method, cashAmount, category, origin, note: p.note || null, created_at: now, cycle_id: openCycleId };
+      applyTxEffect("gasto", amount, p.method, origin, category, 1, cashAmount, categoryId);
+
+      const newTx: Transaction = { id, kind: "gasto", amount, method: p.method, cashAmount, category, categoryId, origin, note: p.note || null, created_at: now, cycle_id: openCycleId };
       setTransactions((prev) => [newTx, ...prev].sort((a, b) => b.created_at.localeCompare(a.created_at)));
 
-      const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [id, amount, p.method, cashAmount, category, origin, p.note || null, now, openCycleId]
+          `INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, amount, p.method, cashAmount, category, categoryId, origin, p.note || null, now, openCycleId]
         ).catch(() => {});
       }
     },
-    [openCycleId, applyTxEffect]
+    [openCycleId, applyTxEffect, ensureBudgetCategoryId]
   );
 
   const updateTransaction = useCallback(
@@ -578,8 +631,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (!target) return;
 
       // Revierte el efecto anterior y aplica el nuevo: así el recálculo de
-      // saldos/cupos siempre queda consistente, sin importar qué campo cambió.
-      applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1, target.cashAmount);
+      // saldos/cupos siempre queda consistente, sin importar qué campo
+      // cambió. La reversión usa target.categoryId -el id real que quedó
+      // fijado cuando se creó esta transacción- en vez de volver a buscar
+      // por nombre, así sigue funcionando aunque la categoría se haya
+      // renombrado después.
+      applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1, target.cashAmount, target.categoryId);
 
       const nextAmount = patch.amount !== undefined ? Number(patch.amount) || 0 : target.amount;
       const nextMethod = patch.method || target.method || "efectivo";
@@ -589,20 +646,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const nextNote = patch.note !== undefined ? patch.note : target.note;
       const nextCreatedAt = patch.createdAt || target.created_at;
 
-      applyTxEffect(target.kind, nextAmount, nextMethod, nextOrigin, nextCategory, 1, nextCashAmount);
+      const categoryOrOriginChanged =
+        (patch.category !== undefined && patch.category !== target.category) || (patch.origin !== undefined && patch.origin !== target.origin);
+      const db = await getDb();
+      let nextCategoryId = target.categoryId;
+      if (nextOrigin !== "vital" && nextOrigin !== "secundario") {
+        nextCategoryId = null;
+      } else if (categoryOrOriginChanged && db) {
+        nextCategoryId = await ensureBudgetCategoryId(db, nextOrigin, nextCategory || "Otros");
+      }
 
-      const updated: Transaction = { ...target, amount: nextAmount, method: nextMethod, cashAmount: nextCashAmount, origin: nextOrigin, category: nextCategory, note: nextNote, created_at: nextCreatedAt };
+      applyTxEffect(target.kind, nextAmount, nextMethod, nextOrigin, nextCategory, 1, nextCashAmount, nextCategoryId);
+
+      const updated: Transaction = { ...target, amount: nextAmount, method: nextMethod, cashAmount: nextCashAmount, categoryId: nextCategoryId, origin: nextOrigin, category: nextCategory, note: nextNote, created_at: nextCreatedAt };
       setTransactions((prev) => prev.map((t) => (t.id === id ? updated : t)).sort((a, b) => b.created_at.localeCompare(a.created_at)));
 
-      const db = await getDb();
       if (db) {
         await db.runAsync(
-          `UPDATE transactions SET amount = ?, method = ?, cash_amount = ?, category = ?, origin = ?, note = ?, created_at = ? WHERE id = ?`,
-          [nextAmount, nextMethod, nextCashAmount, nextCategory, nextOrigin, nextNote, nextCreatedAt, id]
+          `UPDATE transactions SET amount = ?, method = ?, cash_amount = ?, category = ?, category_id = ?, origin = ?, note = ?, created_at = ? WHERE id = ?`,
+          [nextAmount, nextMethod, nextCashAmount, nextCategory, nextCategoryId, nextOrigin, nextNote, nextCreatedAt, id]
         ).catch(() => {});
       }
     },
-    [transactions, applyTxEffect]
+    [transactions, applyTxEffect, ensureBudgetCategoryId]
   );
 
   const deleteTransaction = useCallback(
@@ -611,7 +677,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setTransactions((prev) => prev.filter((t) => t.id !== id));
 
       if (target) {
-        applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1, target.cashAmount);
+        applyTxEffect(target.kind, target.amount, target.method || "efectivo", target.origin, target.category, -1, target.cashAmount, target.categoryId);
       }
 
       const db = await getDb();

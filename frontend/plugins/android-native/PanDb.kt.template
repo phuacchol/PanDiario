@@ -259,7 +259,16 @@ object PanDb {
   // addIncome y addExpense para no repetir esta lógica en cada punto de
   // escritura nativo. Debe llamarse dentro de una transacción ya abierta
   // por el caller (db.beginTransaction()/setTransactionSuccessful()).
-  private fun applyWalletEffect(db: SQLiteDatabase, kind: String, amount: Double, method: String, cashAmount: Double?, origin: String, category: String) {
+  //
+  // categoryId es el id real devuelto por ensureCategory (el caller
+  // siempre lo resuelve antes de llamar aquí): se usa como emparejamiento
+  // primario en vez de "type + name" -si el usuario renombra la categoría
+  // después, el nombre de texto de una transacción vieja deja de
+  // coincidir, pero el id sigue apuntando a la fila real-. category solo
+  // queda como respaldo por si categoryId llega null (no debería pasar en
+  // la práctica, pero evita perder el cupo si algún caller futuro lo
+  // omite).
+  private fun applyWalletEffect(db: SQLiteDatabase, kind: String, amount: Double, method: String, cashAmount: Double?, origin: String, category: String, categoryId: String?) {
     db.rawQuery("SELECT cartera_efectivo, cartera_digital, caja_chica, ahorro FROM wallet WHERE id = 'main'", null).use { c ->
       if (c.moveToFirst()) {
         var carteraEfectivo = c.getDouble(0)
@@ -290,7 +299,12 @@ object PanDb {
         // Los ingresos siempre usan origin='cuenta' (ver addIncome), así
         // que esta rama solo se ejercita para gastos con cupo asignado.
         if (origin == "vital" || origin == "secundario") {
-          db.rawQuery("SELECT id, amount FROM budget_categories WHERE type = ? AND name = ?", arrayOf(origin, category)).use { c2 ->
+          val query = if (categoryId != null) {
+            db.rawQuery("SELECT id, amount FROM budget_categories WHERE id = ?", arrayOf(categoryId))
+          } else {
+            db.rawQuery("SELECT id, amount FROM budget_categories WHERE type = ? AND name = ?", arrayOf(origin, category))
+          }
+          query.use { c2 ->
             if (c2.moveToFirst()) {
               val catId = c2.getString(0)
               val nextAmount = c2.getDouble(1) + delta
@@ -302,18 +316,22 @@ object PanDb {
     }
   }
 
-  // Crea la categoría si el nombre dictado/tecleado no existe todavía
+  // Busca la categoría por type+name y devuelve su id; si no existe todavía
   // -mismo auto-alta que "+ Añadir categoría" en Ingreso/Gasto/Presupuesto
-  // de la app-. No-op silencioso si ya existe para ese type.
-  private fun ensureCategory(db: SQLiteDatabase, type: String, name: String) {
-    if (name.isBlank()) return
+  // de la app- la crea con cupo 0 y devuelve el id nuevo. Este id es lo que
+  // se guarda en transactions.category_id, así que applyWalletEffect puede
+  // encontrar la categoría real más tarde aunque el usuario la renombre.
+  private fun ensureCategory(db: SQLiteDatabase, type: String, name: String): String? {
+    if (name.isBlank()) return null
     db.rawQuery("SELECT id FROM budget_categories WHERE type = ? AND name = ?", arrayOf(type, name)).use { c ->
-      if (c.moveToFirst()) return
+      if (c.moveToFirst()) return c.getString(0)
     }
+    val id = newId("cat")
     db.execSQL(
       "INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, ?, ?, 0, ?)",
-      arrayOf(newId("cat"), type, name, isoNow())
+      arrayOf(id, type, name, isoNow())
     )
+    return id
   }
 
   // Liquida la compra: inserta el gasto "Lista de compras", aplica su
@@ -337,11 +355,19 @@ object PanDb {
       db.beginTransaction()
       val txId = newId("tx")
       val now = isoNow()
+      // finalizePurchase antes insertaba el gasto de la lista sin llamar a
+      // ensureCategory: si "Lista de compras" (u otra categoría elegida en
+      // la liquidación) todavía no existía como fila de presupuesto,
+      // applyWalletEffect no encontraba nada que actualizar y el cupo
+      // correspondiente nunca se creaba/rastreaba -mismo bug que ya
+      // tenían addIncome/addExpense, solo que aquí faltaba del todo-.
+      val categoryType = if (origin == "secundario") "secundario" else "vital"
+      val categoryId = ensureCategory(db, categoryType, category)
       db.execSQL(
-        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?)",
-        arrayOf(txId, amount, method, cashAmount, category, origin, note, now, cycleId)
+        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        arrayOf(txId, amount, method, cashAmount, category, categoryId, origin, note, now, cycleId)
       )
-      applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, category)
+      applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, category, categoryId)
       db.execSQL("UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?", arrayOf(now, listId))
       db.setTransactionSuccessful()
       ok = true
@@ -392,12 +418,12 @@ object PanDb {
     try {
       db.beginTransaction()
       val cleanCategory = category.trim().ifEmpty { "Otros" }
-      ensureCategory(db, "ingreso", cleanCategory)
+      val categoryId = ensureCategory(db, "ingreso", cleanCategory)
       db.execSQL(
-        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, 'cuenta', ?, ?, ?)",
-        arrayOf(newId("tx"), amount, method, cashAmount, cleanCategory, note, isoNow(), cycleId)
+        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, ?, 'cuenta', ?, ?, ?)",
+        arrayOf(newId("tx"), amount, method, cashAmount, cleanCategory, categoryId, note, isoNow(), cycleId)
       )
-      applyWalletEffect(db, "ingreso", amount, method, cashAmount, "cuenta", cleanCategory)
+      applyWalletEffect(db, "ingreso", amount, method, cashAmount, "cuenta", cleanCategory, categoryId)
       db.setTransactionSuccessful()
       ok = true
     } catch (_: Exception) {
@@ -423,12 +449,12 @@ object PanDb {
       db.beginTransaction()
       val cleanCategory = category.trim().ifEmpty { "Otros" }
       val categoryType = if (origin == "secundario") "secundario" else "vital"
-      ensureCategory(db, categoryType, cleanCategory)
+      val categoryId = ensureCategory(db, categoryType, cleanCategory)
       db.execSQL(
-        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?)",
-        arrayOf(newId("tx"), amount, method, cashAmount, cleanCategory, origin, note, isoNow(), cycleId)
+        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        arrayOf(newId("tx"), amount, method, cashAmount, cleanCategory, categoryId, origin, note, isoNow(), cycleId)
       )
-      applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, cleanCategory)
+      applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, cleanCategory, categoryId)
       db.setTransactionSuccessful()
       ok = true
     } catch (_: Exception) {

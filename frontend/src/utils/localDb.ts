@@ -84,6 +84,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         method TEXT,
         cash_amount REAL,
         category TEXT,
+        category_id TEXT,
         origin TEXT DEFAULT 'cuenta',
         note TEXT,
         created_at TEXT NOT NULL,
@@ -187,6 +188,16 @@ async function initDb(db: SQLite.SQLiteDatabase) {
     } catch {}
     try {
       await db.runAsync(`ALTER TABLE lists ADD COLUMN list_code TEXT;`);
+    } catch {}
+    try {
+      // Antes, el cupo de Vital/Secundario se ubicaba buscando por
+      // "type + name" (texto) en vez de por un id estable -si el usuario
+      // renombraba una categoría, las transacciones antiguas (que solo
+      // guardaban el nombre viejo) dejaban de encontrarla al editarlas o
+      // borrarlas, y el cupo quedaba desalineado en silencio. category_id
+      // fija la categoría real al momento de crear la transacción; ver
+      // ensureBudgetCategoryId en DataContext.tsx.
+      await db.runAsync(`ALTER TABLE transactions ADD COLUMN category_id TEXT;`);
     } catch {}
   } catch (err) {
     console.warn("Fallo en execAsync de creación de tablas SQLite:", err);
