@@ -3,7 +3,6 @@ package __PACKAGE__.overlay
 import android.content.Context
 import com.facebook.react.ReactApplication
 import com.facebook.react.bridge.ReactContext
-import com.facebook.react.modules.core.DeviceEventManagerModule
 
 // Puente de eventos nativo -> JS: cada vez que PanDb escribe algo desde el
 // overlay flotante (fuera del proceso "en primer plano" de React Native),
@@ -28,20 +27,28 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 // 0.81.5) es la propiedad correcta y soportada bajo la New Architecture;
 // se usa como camino principal, con el bridge legacy solo como respaldo
 // por si alguna vez se compilara con newArchEnabled=false.
+//
+// Aun con reactHost.currentReactContext, no hay garantía absoluta de que
+// hasActiveReactInstance() sea true en el instante exacto de la escritura
+// nativa, ni de que el JS suscrito al evento reaccione a tiempo bajo
+// Bridgeless. Por eso este emit es solo la vía "rápida" -cuando funciona,
+// la UI se actualiza casi al instante-, y DataContext.tsx además hace un
+// polling corto propio (ver useEffect de sincronización) como red de
+// seguridad 100% independiente de este puente: garantiza la reactividad
+// aunque el evento nunca llegue.
 object NativeSync {
   fun emitDatabaseSyncRequired(context: Context) {
     try {
-      val reactApplication = context.applicationContext as? ReactApplication ?: return
-      val reactContext: ReactContext = reactApplication.reactHost?.currentReactContext
-        ?: reactApplication.reactNativeHost.reactInstanceManager.currentReactContext
-        ?: return
-      reactContext
-        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        .emit("onDatabaseSyncRequired", null)
+      val reactApplication = context.applicationContext as? ReactApplication
+      val reactContext: ReactContext? = reactApplication?.reactHost?.currentReactContext
+        ?: reactApplication?.reactNativeHost?.reactInstanceManager?.currentReactContext
+      if (reactContext != null && reactContext.hasActiveReactInstance()) {
+        reactContext.emitDeviceEvent("onDatabaseSyncRequired")
+      }
     } catch (_: Exception) {
       // El motor JS puede no estar corriendo todavía (o ya no) -no pasa
-      // nada: el listener de AppState en DataContext.tsx recarga los datos
-      // en cuanto la app vuelva a primer plano de todos modos-.
+      // nada: el polling de respaldo en DataContext.tsx cubre este caso
+      // igual-.
     }
   }
 }

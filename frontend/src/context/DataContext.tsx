@@ -418,6 +418,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refresh]);
 
+  // Red de seguridad final: cuando el panel flotante nativo dibuja sus
+  // formularios ENCIMA de la app ya abierta en primer plano, AppState nunca
+  // sale de "active" (nunca deja de estarlo), así que ese listener no puede
+  // disparar un refresh en ese escenario exacto -el más común al usar la
+  // burbuja-. El evento "onDatabaseSyncRequired" de NativeSync.kt cubre el
+  // caso normal, pero depende de que el motor JS tenga una instancia React
+  // activa en el instante preciso de la escritura, algo que no está 100%
+  // garantizado bajo Bridgeless/New Architecture. Este polling corto es
+  // independiente de ambos puentes: mientras el provider esté montado,
+  // vuelve a leer la base cada pocos segundos, así que un registro hecho
+  // desde la burbuja se refleja solo casi de inmediato aunque los eventos
+  // nativos fallen en silencio.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refresh();
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [refresh]);
+
   const persistWallet = useCallback(async (w: Wallet) => {
     const db = await getDb();
     if (!db) return;
