@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { AppState, DeviceEventEmitter } from "react-native";
-import { getDb } from "@/src/utils/localDb";
+import { getDb, openFreshReadConnection } from "@/src/utils/localDb";
 import { cancelReminder, scheduleReminder } from "@/src/utils/notifications";
 import { computeCycleLabel, daysUntil, splitSavingsFromWallet } from "@/src/utils/financeHelpers";
 
@@ -405,68 +405,64 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // refresh() abre su PROPIA conexión de solo lectura -useNewConnection:
+  // true, ver openFreshReadConnection en localDb.ts- en vez de reusar la
+  // conexión compartida de getDb(). expo-sqlite cachea la conexión por
+  // nombre de archivo (openDatabaseAsync llamado de nuevo devuelve la
+  // MISMA conexión con un ref-count, no una independiente), así que sin
+  // esto, cada refresh() -sin importar si lo dispara el evento nativo, un
+  // cambio de AppState, el polling o el botón manual- terminaba leyendo
+  // sobre esa misma conexión larga de sesión. Abrir y cerrar una conexión
+  // genuinamente nueva en cada refresh hace que la lectura sea, a nivel
+  // SQL, mecánicamente idéntica a la de un reinicio completo de la app
+  // -que siempre mostró los datos reales-, sin depender de ninguna teoría
+  // específica sobre qué es lo que hacía que la conexión compartida
+  // dejara de ver escrituras externas. La conexión de escritura
+  // (dbInstance/getDb, usada por addIncome/addExpense/etc.) no cambia:
+  // eso nunca falló -lo registrado siempre sobrevivió a un reinicio-.
   const refresh = useCallback(async () => {
-    const db = await getDb();
+    const db = await openFreshReadConnection();
     if (!db) {
       setLoading(false);
       return;
     }
 
-    // Diagnóstico + defensa: si esta conexión JS (la misma vive abierta
-    // durante toda la sesión, ver dbInstance en localDb.ts) quedó adentro
-    // de una transacción sin confirmar -por ejemplo, un withTransactionAsync
-    // de deleteList/deleteCycle que lanzó una excepción a mitad de camino y
-    // no hizo rollback-, SQLite en modo WAL sigue viendo la misma foto de
-    // la base tomada al abrir esa transacción para SIEMPRE, sin importar
-    // cuántas veces se repita esta consulta (evento, polling o el botón
-    // manual de Actualizar): todos disparan este mismo refresh() sobre la
-    // misma conexión atascada. Un reinicio completo de la app sí lo
-    // arregla porque abre una conexión nueva, sin ese arrastre -coincide
-    // exactamente con el patrón reportado-. Se loguea siempre (para
-    // confirmar o descartar esta hipótesis con evidencia real de logcat) y
-    // se fuerza el ROLLBACK si corresponde, antes de leer nada.
     try {
-      const stuck = await db.isInTransactionAsync();
-      console.log("PANDIARIO_SYNC refresh() isInTransaction=", stuck);
-      if (stuck) {
-        await db.execAsync("ROLLBACK;").catch((e) => console.warn("PANDIARIO_SYNC ROLLBACK falló:", e));
+      const { walletRow, openCycle, ok } = await ensureBootstrap(db);
+      if (!ok) {
+        // Lectura inicial fallida (ej. SQLITE_BUSY momentáneo mientras el
+        // overlay nativo escribe): se aborta sin tocar el estado en
+        // memoria -mejor mantener los datos reales que ya se tenían que
+        // reemplazarlos por un wallet en cero-. El próximo evento de
+        // sincronización o cambio de AppState vuelve a intentarlo.
+        setLoading(false);
+        return;
       }
-    } catch (e) {
-      console.warn("PANDIARIO_SYNC isInTransactionAsync falló:", e);
-    }
+      setWallet(mapWalletRow(walletRow));
+      setOpenCycleId(openCycle?.id || null);
 
-    const { walletRow, openCycle, ok } = await ensureBootstrap(db);
-    if (!ok) {
-      // Lectura inicial fallida (ej. SQLITE_BUSY momentáneo mientras el
-      // overlay nativo escribe): se aborta sin tocar el estado en
-      // memoria -mejor mantener los datos reales que ya se tenían que
-      // reemplazarlos por un wallet en cero-. El próximo evento de
-      // sincronización o cambio de AppState vuelve a intentarlo.
+      const cycleRows = await db.getAllAsync<any>(`SELECT * FROM cycles ORDER BY start_date DESC`).catch(() => []);
+      setCycles(cycleRows || []);
+
+      const budgetRows = await db.getAllAsync<any>(`SELECT * FROM budget_categories ORDER BY created_at ASC`).catch(() => []);
+      setBudgetCategories(budgetRows || []);
+
+      const txRows = await db.getAllAsync<any>(`SELECT * FROM transactions ORDER BY created_at DESC`).catch(() => []);
+      setTransactions((txRows || []).map(mapTx));
+
+      const noteRows = await db.getAllAsync<any>(`SELECT * FROM notes ORDER BY created_at DESC`).catch(() => []);
+      setNotes((noteRows || []).map(mapNote));
+
+      const listRows = await db.getAllAsync<any>(`SELECT * FROM lists ORDER BY created_at DESC`).catch(() => []);
+      setLists((listRows || []).map(mapList));
+
+      const entryRows = await db.getAllAsync<any>(`SELECT * FROM list_entries ORDER BY created_at DESC`).catch(() => []);
+      setListEntries((entryRows || []).map(mapListEntry));
+
       setLoading(false);
-      return;
+    } finally {
+      await db.closeAsync().catch(() => {});
     }
-    setWallet(mapWalletRow(walletRow));
-    setOpenCycleId(openCycle?.id || null);
-
-    const cycleRows = await db.getAllAsync<any>(`SELECT * FROM cycles ORDER BY start_date DESC`).catch(() => []);
-    setCycles(cycleRows || []);
-
-    const budgetRows = await db.getAllAsync<any>(`SELECT * FROM budget_categories ORDER BY created_at ASC`).catch(() => []);
-    setBudgetCategories(budgetRows || []);
-
-    const txRows = await db.getAllAsync<any>(`SELECT * FROM transactions ORDER BY created_at DESC`).catch(() => []);
-    setTransactions((txRows || []).map(mapTx));
-
-    const noteRows = await db.getAllAsync<any>(`SELECT * FROM notes ORDER BY created_at DESC`).catch(() => []);
-    setNotes((noteRows || []).map(mapNote));
-
-    const listRows = await db.getAllAsync<any>(`SELECT * FROM lists ORDER BY created_at DESC`).catch(() => []);
-    setLists((listRows || []).map(mapList));
-
-    const entryRows = await db.getAllAsync<any>(`SELECT * FROM list_entries ORDER BY created_at DESC`).catch(() => []);
-    setListEntries((entryRows || []).map(mapListEntry));
-
-    setLoading(false);
   }, [ensureBootstrap]);
 
   useEffect(() => {

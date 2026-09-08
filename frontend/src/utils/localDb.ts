@@ -32,6 +32,45 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase | null> {
   return initPromise;
 }
 
+// Descubrimiento clave: expo-sqlite CACHEA la conexión nativa por nombre de
+// archivo -openDatabaseAsync("pandiario.db") llamado de nuevo NO abre una
+// conexión realmente independiente, devuelve la misma (con un ref-count
+// interno), salvo que se pase { useNewConnection: true } explícitamente
+// (ver node_modules/expo-sqlite/android/.../SQLiteModule.kt,
+// findCachedDatabase). Esto significa que dbInstance (usado por getDb(),
+// y por lo tanto por refresh()) es, en la práctica, UNA SOLA conexión
+// viva durante toda la sesión -sin importar cuántas veces distintas
+// funciones llamen a getDb()-, así que cualquier motivo por el que esa
+// conexión deje de ver escrituras externas (transacción atascada, o
+// cualquier otra causa que no se pudo confirmar sin logcat de un
+// dispositivo real) afecta a TODOS los refresh subsiguientes por igual,
+// sin importar el mecanismo que los dispare (evento, AppState, polling,
+// botón manual) -coincide exactamente con el patrón reportado: nada
+// funciona salvo matar el proceso, que sí abre una conexión realmente
+// nueva-.
+//
+// En vez de seguir apostando a diagnosticar la causa exacta sin poder
+// probarla en un dispositivo, refresh() ahora abre su propia conexión de
+// SOLO LECTURA con useNewConnection: true -genuinamente independiente de
+// dbInstance, nunca cacheada- y la cierra al terminar. Cada refresh queda
+// así mecánicamente idéntico, a nivel SQL, a lo que pasa en un reinicio
+// completo de la app -que el usuario confirmó una y otra vez que SIEMPRE
+// muestra los datos reales-, sin depender de ninguna teoría sobre qué
+// exactamente se atasca en la conexión compartida. dbInstance (getDb)
+// sigue siendo la única conexión usada para ESCRIBIR -eso nunca falló: el
+// usuario siempre confirmó que lo registrado sobrevive a un reinicio-, así
+// que no hay ningún cambio de riesgo ahí.
+export async function openFreshReadConnection(): Promise<SQLite.SQLiteDatabase | null> {
+  try {
+    const db = await SQLite.openDatabaseAsync("pandiario.db", { useNewConnection: true });
+    await db.execAsync(`PRAGMA busy_timeout = 3000;`).catch(() => {});
+    return db;
+  } catch (error) {
+    console.warn("PANDIARIO_SYNC: no se pudo abrir la conexión de lectura fresca:", error);
+    return null;
+  }
+}
+
 async function initDb(db: SQLite.SQLiteDatabase) {
   try {
     await db.execAsync(`
