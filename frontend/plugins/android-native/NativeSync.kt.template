@@ -1,0 +1,29 @@
+package __PACKAGE__.overlay
+
+import android.content.Context
+import com.facebook.react.ReactApplication
+import com.facebook.react.modules.core.DeviceEventManagerModule
+
+// Puente de eventos nativo -> JS: cada vez que PanDb escribe algo desde el
+// overlay flotante (fuera del proceso "en primer plano" de React Native),
+// avisa a la app -si su motor JS sigue vivo en memoria- para que refresque
+// sus datos de inmediato en vez de esperar a que el usuario reabra la
+// pantalla. No requiere ningún cambio en MainApplication.kt: cualquier
+// Application de Expo/RN implementa ReactApplication, así que se puede
+// llegar al ReactContext actual desde cualquier Context -incluido este
+// Service- sin guardar una referencia estática propia.
+object NativeSync {
+  fun emitDatabaseSyncRequired(context: Context) {
+    try {
+      val reactApplication = context.applicationContext as? ReactApplication ?: return
+      val reactContext = reactApplication.reactNativeHost.reactInstanceManager.currentReactContext ?: return
+      reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("onDatabaseSyncRequired", null)
+    } catch (_: Exception) {
+      // El motor JS puede no estar corriendo todavía (o ya no) -no pasa
+      // nada: el listener de AppState en DataContext.tsx recarga los datos
+      // en cuanto la app vuelva a primer plano de todos modos-.
+    }
+  }
+}

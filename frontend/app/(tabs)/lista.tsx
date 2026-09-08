@@ -25,7 +25,9 @@ export default function ListaScreen() {
   const [showNew, setShowNew] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [startEditing, setStartEditing] = useState(false);
   const [detailListId, setDetailListId] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   const [newTitle, setNewTitle] = useState("");
   const [isProgrammed, setIsProgrammed] = useState(false);
@@ -81,31 +83,50 @@ export default function ListaScreen() {
   // estado; el panel de la lista se abre en cualquiera de los dos casos.
   const onPlay = (list: ListRecord) => {
     toggleListPlay(list.id);
+    setStartEditing(false);
     setActiveListId(list.id);
   };
 
+  // Tocar el cuerpo de la tarjeta abre su vista de detalle/checklist tal
+  // cual está (sin tocar el estado de Play). El lápiz hace lo mismo pero
+  // entra directo en modo edición -para borrar ítems de una lista todavía
+  // inactiva, ver el bloqueo estructural condicionado a in_progress en
+  // CompraOverlayModal-.
+  const openList = (list: ListRecord, editing: boolean) => {
+    setStartEditing(editing);
+    setActiveListId(list.id);
+  };
+
+  // Se antepone (arriba del input) para confirmar visualmente la adición
+  // inmediata, igual que addListEntry sobre una lista ya creada.
   const addDraftItem = () => {
     const clean = draftItemText.trim();
     if (!clean) return;
-    setDraftItems((prev) => [...prev, { id: `draft_${Date.now()}_${Math.floor(Math.random() * 10000)}`, text: clean, done: false }]);
+    setDraftItems((prev) => [{ id: `draft_${Date.now()}_${Math.floor(Math.random() * 10000)}`, text: clean, done: false }, ...prev]);
     setDraftItemText("");
   };
 
   const onCreate = async () => {
+    if (isCreating) return;
     const title = newTitle.trim();
     if (!title) return;
-    let scheduledAt: string | null = null;
-    if (isProgrammed && date) {
-      const [y, m, d] = date.split("-").map(Number);
-      scheduledAt = new Date(y, (m || 1) - 1, d || 1, parseInt(hour, 10) || 0, parseInt(minute, 10) || 0).toISOString();
-    }
-    const newListId = await addList({ title, isProgrammed: isProgrammed && !!scheduledAt, scheduledAt, leadMinutes: 15 });
-    if (newListId) {
-      for (const item of draftItems) {
-        await addListEntry(newListId, item.text);
+    setIsCreating(true);
+    try {
+      let scheduledAt: string | null = null;
+      if (isProgrammed && date) {
+        const [y, m, d] = date.split("-").map(Number);
+        scheduledAt = new Date(y, (m || 1) - 1, d || 1, parseInt(hour, 10) || 0, parseInt(minute, 10) || 0).toISOString();
       }
+      const newListId = await addList({ title, isProgrammed: isProgrammed && !!scheduledAt, scheduledAt, leadMinutes: 15 });
+      if (newListId) {
+        for (const item of draftItems) {
+          await addListEntry(newListId, item.text);
+        }
+      }
+      setShowNew(false);
+    } finally {
+      setIsCreating(false);
     }
-    setShowNew(false);
   };
 
   return (
@@ -150,7 +171,7 @@ export default function ListaScreen() {
         ListEmptyComponent={<EmptyState variant="box" title="Sin listas" subtitle="Crea una desde el botón + o dilo por voz." />}
         renderItem={({ item }: { item: ListRecord }) => (
           <View style={[styles.card, { backgroundColor: colors.surfaceSecondary }]}>
-            <View style={{ flex: 1 }}>
+            <Pressable style={{ flex: 1 }} onPress={() => openList(item, false)} testID={`lista-open-${item.id}`}>
               <Text style={[styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
                 {item.list_code ? `#${item.list_code} · ` : ""}
                 {item.title}
@@ -160,11 +181,11 @@ export default function ListaScreen() {
                   {formatLocalDate(item.scheduled_at)} {formatLocalTime(item.scheduled_at)}
                 </Text>
               ) : null}
-            </View>
+            </Pressable>
             <Pressable onPress={() => onPlay(item)} hitSlop={8} testID={`lista-play-${item.id}`}>
               <Feather name="play-circle" size={22} color={item.status === "in_progress" ? colors.success : colors.brand} />
             </Pressable>
-            <Pressable onPress={() => onPlay(item)} hitSlop={8} testID={`lista-edit-${item.id}`}>
+            <Pressable onPress={() => openList(item, true)} hitSlop={8} testID={`lista-edit-${item.id}`}>
               <Feather name="edit-2" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
             <Pressable onPress={() => deleteList(item.id)} hitSlop={8} testID={`lista-delete-${item.id}`}>
@@ -243,7 +264,7 @@ export default function ListaScreen() {
                 <Pressable style={styles.cancelBtn} onPress={() => setShowNew(false)} testID="lista-new-cancel">
                   <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>Cancelar</Text>
                 </Pressable>
-                <Button title="Crear" onPress={onCreate} style={{ flex: 1 }} testID="lista-new-submit" />
+                <Button title="Crear" onPress={onCreate} loading={isCreating} disabled={isCreating} style={{ flex: 1 }} testID="lista-new-submit" />
               </View>
             </KeyboardAwareScrollView>
           </View>
@@ -280,6 +301,7 @@ export default function ListaScreen() {
         visible={!!activeListId}
         list={activeList}
         entries={activeEntries}
+        initialEditing={startEditing}
         onToggleEntry={toggleListEntry}
         onAddEntry={(text, extra) => activeListId && addListEntry(activeListId, text, extra)}
         onDeleteEntry={deleteListEntry}

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { AppState, DeviceEventEmitter } from "react-native";
 import { getDb } from "@/src/utils/localDb";
 import { cancelReminder, scheduleReminder } from "@/src/utils/notifications";
 import { computeCycleLabel, daysUntil, splitSavingsFromWallet } from "@/src/utils/financeHelpers";
@@ -357,6 +358,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  // Sincronización reactiva con el panel flotante nativo: cada escritura
+  // de PanDb.kt (Ingreso/Gasto/Nota/Lista/liquidación desde la burbuja)
+  // emite "onDatabaseSyncRequired" -ver NativeSync.kt.template- una vez
+  // que su transacción SQLite ya confirmó en disco; refrescar aquí trae
+  // ese cambio a la app sin esperar a que el usuario la reabra. El
+  // listener de AppState es el respaldo para el caso en que el evento no
+  // llegue a tiempo -app recién resumida, motor JS aún no listo cuando se
+  // emitió-: al volver a "active" siempre se vuelve a leer la base, así
+  // que un estado en memoria desactualizado nunca sobrevive más que el
+  // tiempo que la app estuvo en segundo plano.
+  useEffect(() => {
+    const syncSub = DeviceEventEmitter.addListener("onDatabaseSyncRequired", () => {
+      refresh();
+    });
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => {
+      syncSub.remove();
+      appStateSub.remove();
+    };
   }, [refresh]);
 
   const persistWallet = useCallback(async (w: Wallet) => {

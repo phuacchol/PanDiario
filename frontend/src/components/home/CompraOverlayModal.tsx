@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Modal, Pressable, TextInput, ScrollView, Switch, KeyboardAvoidingView, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { Button, Field, Segmented } from "@/src/components/ui";
@@ -9,15 +10,20 @@ import { formatMoney } from "@/src/utils/format";
 import type { ListRecord, ListEntry, Method, Origin } from "@/src/context/DataContext";
 
 // Modo "Compra" (equivalente en-app al panel flotante de la lista en
-// ejecución): checklist con checkboxes, modo Editar (los ítems base
-// -agregados antes de presionar Play- quedan bloqueados contra
-// eliminación/renombrado; solo los ítems "extra" añadidos durante la
-// ejecución, en naranja, se pueden quitar) y formulario final para cerrar
-// la lista como un gasto catalogado "Lista de compras".
+// ejecución): checklist con checkboxes y modo Editar. El bloqueo
+// estructural de ítems base solo aplica con la lista en ejecución
+// (status 'in_progress', Play en verde) -ahí solo los "extra" añadidos
+// durante la ejecución, en naranja, se pueden quitar-; con la lista
+// todavía inactiva ('active') se puede borrar cualquier ítem, base o
+// extra, para permitir gestionarla libremente antes de empezar a
+// comprar. Termina con un formulario para cerrar la lista como un gasto
+// catalogado "Lista de compras" (o archivarla sin gasto, ver el switch
+// "Es una compra").
 export function CompraOverlayModal({
   visible,
   list,
   entries,
+  initialEditing,
   onToggleEntry,
   onAddEntry,
   onDeleteEntry,
@@ -27,6 +33,7 @@ export function CompraOverlayModal({
   visible: boolean;
   list: ListRecord | null;
   entries: ListEntry[];
+  initialEditing?: boolean;
   onToggleEntry: (id: string) => void;
   onAddEntry: (text: string, extra: boolean) => void;
   onDeleteEntry: (id: string) => void;
@@ -34,6 +41,7 @@ export function CompraOverlayModal({
   onClose: () => void;
 }) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState(false);
   const [newItem, setNewItem] = useState("");
   const [showFinish, setShowFinish] = useState(false);
@@ -50,7 +58,7 @@ export function CompraOverlayModal({
   // una lista (evita arrastrar el monto/método de una compra anterior).
   useEffect(() => {
     if (visible) {
-      setEditing(false);
+      setEditing(!!initialEditing);
       setNewItem("");
       setShowFinish(false);
       setRegisterExpense(true);
@@ -62,7 +70,7 @@ export function CompraOverlayModal({
       submittingRef.current = false;
       setIsSubmitting(false);
     }
-  }, [visible]);
+  }, [visible, initialEditing]);
 
   const digitalRemainder = useMemo(() => {
     const amt = parseFloat(amount.replace(",", ".")) || 0;
@@ -112,7 +120,7 @@ export function CompraOverlayModal({
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
       >
-        <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
+        <View style={[styles.sheet, { backgroundColor: colors.surface, paddingBottom: Math.max(SPACING.xl, insets.bottom + SPACING.md) }]}>
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.onSurface }]} numberOfLines={1}>
               {list.list_code ? `#${list.list_code} · ` : ""}
@@ -147,7 +155,7 @@ export function CompraOverlayModal({
                 >
                   {item.text}
                 </Text>
-                {editing && item.extra ? (
+                {editing && (item.extra || list.status !== "in_progress") ? (
                   <Pressable onPress={() => onDeleteEntry(item.id)} hitSlop={8} testID={`compra-remove-${item.id}`}>
                     <Feather name="x" size={18} color={colors.error} />
                   </Pressable>

@@ -97,6 +97,7 @@ object PanDb {
     val db = open(context) ?: return
     try {
       db.execSQL("UPDATE list_entries SET done = ? WHERE id = ?", arrayOf(if (done) 1 else 0, entryId))
+      NativeSync.emitDatabaseSyncRequired(context)
     } catch (_: Exception) {
     } finally {
       db.close()
@@ -113,6 +114,7 @@ object PanDb {
         "INSERT INTO list_entries (id, list_id, text, done, extra, created_at) VALUES (?, ?, ?, 0, 1, ?)",
         arrayOf(newId("entry"), listId, text, isoNow())
       )
+      NativeSync.emitDatabaseSyncRequired(context)
       return true
     } catch (_: Exception) {
       return false
@@ -128,7 +130,9 @@ object PanDb {
   fun deleteExtraEntry(context: Context, entryId: String): Boolean {
     val db = open(context) ?: return false
     try {
-      return db.delete("list_entries", "id = ? AND extra = 1", arrayOf(entryId)) > 0
+      val deleted = db.delete("list_entries", "id = ? AND extra = 1", arrayOf(entryId)) > 0
+      if (deleted) NativeSync.emitDatabaseSyncRequired(context)
+      return deleted
     } catch (_: Exception) {
       return false
     } finally {
@@ -230,6 +234,13 @@ object PanDb {
   ): Boolean {
     val cycleId = getOpenCycleId(context) ?: return false
     val db = open(context) ?: return false
+    // El evento a JS se emite DESPUÉS de endTransaction() (en el finally),
+    // nunca antes: setTransactionSuccessful() solo marca la intención de
+    // confirmar, el commit real ocurre recién en endTransaction(). Emitir
+    // antes arriesgaría que DataContext refresque y lea la base justo
+    // antes de que el commit exista -la misma condición de carrera que
+    // esta directiva pide evitar-.
+    var ok = false
     try {
       db.beginTransaction()
       val txId = newId("tx")
@@ -241,9 +252,9 @@ object PanDb {
       applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, category)
       db.execSQL("UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?", arrayOf(now, listId))
       db.setTransactionSuccessful()
-      return true
+      ok = true
     } catch (_: Exception) {
-      return false
+      ok = false
     } finally {
       try {
         db.endTransaction()
@@ -251,6 +262,8 @@ object PanDb {
       }
       db.close()
     }
+    if (ok) NativeSync.emitDatabaseSyncRequired(context)
+    return ok
   }
 
   // Interruptor "Es una compra" desactivado: archiva la lista como 'done'
@@ -260,6 +273,7 @@ object PanDb {
     val db = open(context) ?: return false
     try {
       db.execSQL("UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?", arrayOf(isoNow(), listId))
+      NativeSync.emitDatabaseSyncRequired(context)
       return true
     } catch (_: Exception) {
       return false
@@ -274,6 +288,7 @@ object PanDb {
   fun addIncome(context: Context, amount: Double, method: String, cashAmount: Double?, category: String, note: String?): Boolean {
     val cycleId = getOpenCycleId(context) ?: return false
     val db = open(context) ?: return false
+    var ok = false
     try {
       db.beginTransaction()
       val cleanCategory = category.trim().ifEmpty { "Otros" }
@@ -284,14 +299,16 @@ object PanDb {
       )
       applyWalletEffect(db, "ingreso", amount, method, cashAmount, "cuenta", cleanCategory)
       db.setTransactionSuccessful()
-      return true
+      ok = true
     } catch (_: Exception) {
-      return false
+      ok = false
     } finally {
       try { db.endTransaction() } catch (_: Exception) {
       }
       db.close()
     }
+    if (ok) NativeSync.emitDatabaseSyncRequired(context)
+    return ok
   }
 
   // Ventana nativa "Nuevo Gasto" del menú de la burbuja. La categoría se
@@ -300,6 +317,7 @@ object PanDb {
   fun addExpense(context: Context, amount: Double, method: String, cashAmount: Double?, origin: String, category: String, note: String?): Boolean {
     val cycleId = getOpenCycleId(context) ?: return false
     val db = open(context) ?: return false
+    var ok = false
     try {
       db.beginTransaction()
       val cleanCategory = category.trim().ifEmpty { "Otros" }
@@ -311,14 +329,16 @@ object PanDb {
       )
       applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, cleanCategory)
       db.setTransactionSuccessful()
-      return true
+      ok = true
     } catch (_: Exception) {
-      return false
+      ok = false
     } finally {
       try { db.endTransaction() } catch (_: Exception) {
       }
       db.close()
     }
+    if (ok) NativeSync.emitDatabaseSyncRequired(context)
+    return ok
   }
 
   // Ventana nativa "Nueva Nota" del menú de la burbuja: nota simple, sin
@@ -330,6 +350,7 @@ object PanDb {
         "INSERT INTO notes (id, subject, text, pinned, is_reminder, remind_at, lead_minutes, notification_id, done, completed_at, created_at) VALUES (?, ?, ?, 0, 0, NULL, 15, NULL, 0, NULL, ?)",
         arrayOf(newId("note"), subject.trim(), text.trim(), isoNow())
       )
+      NativeSync.emitDatabaseSyncRequired(context)
       return true
     } catch (_: Exception) {
       return false
@@ -346,6 +367,7 @@ object PanDb {
   // constructor. Devuelve el id de la lista creada, o null si falló.
   fun createList(context: Context, title: String, items: List<String>): String? {
     val db = open(context) ?: return null
+    var resultId: String? = null
     try {
       db.beginTransaction()
       var maxSeq = 0
@@ -373,13 +395,15 @@ object PanDb {
         )
       }
       db.setTransactionSuccessful()
-      return id
+      resultId = id
     } catch (_: Exception) {
-      return null
+      resultId = null
     } finally {
       try { db.endTransaction() } catch (_: Exception) {
       }
       db.close()
     }
+    if (resultId != null) NativeSync.emitDatabaseSyncRequired(context)
+    return resultId
   }
 }

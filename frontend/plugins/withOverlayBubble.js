@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { withAndroidManifest, withMainApplication, withDangerousMod, AndroidConfig } = require("@expo/config-plugins");
+const { withAndroidManifest, withMainApplication, withMainActivity, withDangerousMod, AndroidConfig } = require("@expo/config-plugins");
 
 const SERVICE_NAME = ".overlay.OverlayBubbleService";
 const FLOATING_ALIAS_NAME = ".overlay.FloatingDialogAlias";
@@ -90,6 +90,37 @@ function withOverlayBubbleMainApplication(config) {
   });
 }
 
+// El Asistente por voz ("Hablar") se abre a través del alias de diálogo
+// flotante -ver arriba- para no traer la app a pantalla completa; para
+// que quede a la mano del pulgar (ergonomía, ver la directiva) se ancla
+// abajo en vez de centrado. Un Window de diálogo no tiene un atributo de
+// tema declarativo para su gravity, así que se fija en runtime con
+// window.setGravity() -API estándar de Android, sin dependencias-, pero
+// SOLO cuando el intent trae el extra "panFloating" (lo pone
+// OverlayBubbleService.openApp() únicamente al abrir /voice; un
+// lanzamiento normal de la app -ícono, deep link normal- nunca lo trae,
+// así que esto no puede afectar en nada al arranque habitual). Si el
+// texto generado de MainActivity.kt no calza con el patrón esperado, el
+// reemplazo simplemente no se aplica -no lanza, no rompe el build- y la
+// única consecuencia es que el diálogo de voz queda centrado en vez de
+// abajo.
+function withOverlayBubbleMainActivity(config) {
+  return withMainActivity(config, (config) => {
+    if (config.modResults.language !== "kt") return config;
+    let contents = config.modResults.contents;
+    if (!contents.includes("panFloating")) {
+      const snippet =
+        `    if (intent?.getBooleanExtra("panFloating", false) == true) {\n` +
+        `      window.setGravity(android.view.Gravity.BOTTOM)\n` +
+        `    }\n`;
+      const replaced = contents.replace(/(super\.onCreate\([^)]*\)\s*\n)/, `$1${snippet}`);
+      if (replaced !== contents) contents = replaced;
+    }
+    config.modResults.contents = contents;
+    return config;
+  });
+}
+
 function withOverlayBubbleNativeSources(config) {
   return withDangerousMod(config, [
     "android",
@@ -170,6 +201,7 @@ function withOverlayBubbleFloatingTheme(config) {
 module.exports = function withOverlayBubble(config) {
   config = withOverlayBubbleManifest(config);
   config = withOverlayBubbleMainApplication(config);
+  config = withOverlayBubbleMainActivity(config);
   config = withOverlayBubbleNativeSources(config);
   config = withOverlayBubbleIcon(config);
   config = withOverlayBubbleFloatingTheme(config);
