@@ -268,6 +268,24 @@ function mapList(row: any): ListRecord {
   };
 }
 
+// Igual que la distinción "falló la lectura" vs. "está realmente vacío"
+// que ya tenía ensureBootstrap para wallet/ciclo, pero para las 6
+// consultas principales de refresh(). Antes usaban `.catch(() => [])`, que
+// no puede distinguir un error transitorio (más probable ahora que cada
+// refresh abre y cierra una conexión nueva, ver openFreshReadConnection)
+// de una tabla genuinamente vacía -un fallo pasajero borraba en pantalla
+// lo que sí estaba guardado hasta el siguiente refresh exitoso, el
+// "parpadeo y desaparición" reportado al registrar por voz-. Devuelve
+// undefined en vez de [] cuando la consulta falla, para que el caller
+// pueda dejar el estado actual intacto en vez de reemplazarlo por vacío.
+async function safeSelectAll<T>(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, sql: string): Promise<T[] | undefined> {
+  try {
+    return await db.getAllAsync<T>(sql);
+  } catch {
+    return undefined;
+  }
+}
+
 function mapListEntry(row: any): ListEntry {
   return {
     id: row.id,
@@ -441,23 +459,23 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setWallet(mapWalletRow(walletRow));
       setOpenCycleId(openCycle?.id || null);
 
-      const cycleRows = await db.getAllAsync<any>(`SELECT * FROM cycles ORDER BY start_date DESC`).catch(() => []);
-      setCycles(cycleRows || []);
+      const cycleRows = await safeSelectAll<any>(db, `SELECT * FROM cycles ORDER BY start_date DESC`);
+      if (cycleRows !== undefined) setCycles(cycleRows);
 
-      const budgetRows = await db.getAllAsync<any>(`SELECT * FROM budget_categories ORDER BY created_at ASC`).catch(() => []);
-      setBudgetCategories(budgetRows || []);
+      const budgetRows = await safeSelectAll<any>(db, `SELECT * FROM budget_categories ORDER BY created_at ASC`);
+      if (budgetRows !== undefined) setBudgetCategories(budgetRows);
 
-      const txRows = await db.getAllAsync<any>(`SELECT * FROM transactions ORDER BY created_at DESC`).catch(() => []);
-      setTransactions((txRows || []).map(mapTx));
+      const txRows = await safeSelectAll<any>(db, `SELECT * FROM transactions ORDER BY created_at DESC`);
+      if (txRows !== undefined) setTransactions(txRows.map(mapTx));
 
-      const noteRows = await db.getAllAsync<any>(`SELECT * FROM notes ORDER BY created_at DESC`).catch(() => []);
-      setNotes((noteRows || []).map(mapNote));
+      const noteRows = await safeSelectAll<any>(db, `SELECT * FROM notes ORDER BY created_at DESC`);
+      if (noteRows !== undefined) setNotes(noteRows.map(mapNote));
 
-      const listRows = await db.getAllAsync<any>(`SELECT * FROM lists ORDER BY created_at DESC`).catch(() => []);
-      setLists((listRows || []).map(mapList));
+      const listRows = await safeSelectAll<any>(db, `SELECT * FROM lists ORDER BY created_at DESC`);
+      if (listRows !== undefined) setLists(listRows.map(mapList));
 
-      const entryRows = await db.getAllAsync<any>(`SELECT * FROM list_entries ORDER BY created_at DESC`).catch(() => []);
-      setListEntries((entryRows || []).map(mapListEntry));
+      const entryRows = await safeSelectAll<any>(db, `SELECT * FROM list_entries ORDER BY created_at DESC`);
+      if (entryRows !== undefined) setListEntries(entryRows.map(mapListEntry));
 
       setLoading(false);
     } finally {
