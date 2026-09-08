@@ -24,15 +24,23 @@ import kotlin.math.min
 //
 // Toda escritura sigue el mismo patrón: transacción explícita
 // (beginTransaction/setTransactionSuccessful/endTransaction) -> si
-// confirmó, PRAGMA wal_checkpoint(FULL) mientras la conexión sigue
-// abierta -expo-sqlite abre la base en modo WAL; sin este checkpoint,
-// una lectura de React Native desde SU PROPIA conexión podría no ver de
-// inmediato lo que este proceso acaba de escribir, porque WAL permite
-// que lectores vean una versión distinta del archivo hasta que el
-// checkpoint vacía el log al archivo principal- -> recién ahí se cierra
-// la conexión y se emite NativeSync.emitDatabaseSyncRequired(). Este
-// orden importa: emitir antes del checkpoint podría hacer que
-// DataContext refresque y todavía no vea la escritura.
+// confirmó, PRAGMA wal_checkpoint(PASSIVE) mientras la conexión sigue
+// abierta (una vez comprometida la transacción, una nueva lectura desde
+// la conexión de React Native ya ve los cambios sin necesitar ningún
+// checkpoint -así funciona WAL entre conexiones distintas-; el
+// checkpoint aquí es solo mantenimiento: vacía oportunistamente el WAL
+// al archivo principal sin bloquear a nadie. Fue FULL hasta que se
+// detectó que ese modo SÍ bloquea y puede hacer fallar con "database is
+// locked" a un lector concurrente -ver el fix de ensureBootstrap en
+// DataContext.tsx-) -> recién ahí se cierra la conexión y se emite
+// NativeSync.emitDatabaseSyncRequired(). Este orden importa: emitir
+// antes de que la transacción confirme podría hacer que DataContext
+// refresque y todavía no vea la escritura.
+//
+// Cada conexión también fija PRAGMA busy_timeout al abrirse (ver
+// open()): si esta conexión y la de React Native se tocan en el mismo
+// instante, SQLite reintenta en silencio en vez de lanzar un error de
+// inmediato.
 object PanDb {
   data class ListRow(val id: String, val listCode: String, val title: String, val status: String)
   data class EntryRow(val id: String, val text: String, val done: Boolean, val extra: Boolean)
@@ -41,10 +49,22 @@ object PanDb {
 
   fun isAvailable(context: Context): Boolean = dbFile(context).exists()
 
+  // busy_timeout: si esta conexión encuentra la base bloqueada por la
+  // conexión de React Native (o viceversa), SQLite reintenta en silencio
+  // hasta 3s en vez de lanzar "database is locked" de inmediato. Sin
+  // esto, dos conexiones separadas tocando el mismo archivo -este
+  // Service y expo-sqlite del lado de RN- pueden pisarse en el instante
+  // exacto en que ambas leen/escriben a la vez.
   private fun open(context: Context): SQLiteDatabase? {
     return try {
       val file = dbFile(context)
-      if (!file.exists()) null else SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+      if (!file.exists()) return null
+      val db = SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+      try {
+        db.rawQuery("PRAGMA busy_timeout = 3000;", null)?.close()
+      } catch (_: Exception) {
+      }
+      db
     } catch (_: Exception) {
       null
     }
@@ -58,13 +78,27 @@ object PanDb {
 
   private fun newId(prefix: String): String = "${prefix}_${System.currentTimeMillis()}_${(Math.random() * 10000).toInt()}"
 
-  // Fuerza el vaciado del WAL al archivo principal -ver comentario de
+  // Empuja el WAL hacia el archivo principal -ver comentario de
   // cabecera-. Debe llamarse con `db` todavía abierto, después de que la
   // transacción ya confirmó (endTransaction), y solo si la escritura
   // realmente tuvo éxito.
+  //
+  // PASSIVE, no FULL: un checkpoint FULL exige un lock exclusivo y
+  // BLOQUEA hasta que todo lector activo termine -si en ese instante la
+  // app de React Native está leyendo desde su propia conexión (ej. el
+  // usuario abre la app justo cuando la burbuja termina de guardar), esa
+  // lectura puede fallar con "database is locked" (SQLITE_BUSY). Como
+  // ensureBootstrap() trataba cualquier error de lectura como "la cuenta
+  // no tiene wallet todavía" (ver el fix en DataContext.tsx), ese
+  // SQLITE_BUSY transitorio hacía que la app pareciera una instalación
+  // recién hecha -balance en cero- hasta el próximo refresh exitoso.
+  // PASSIVE hace lo mismo (vaciar tantos frames del WAL como pueda) pero
+  // nunca bloquea ni le quita el lock a un lector u otro escritor activo:
+  // si hay contención, simplemente checkpointea menos esta vez y ya, sin
+  // arriesgar ese error.
   private fun checkpointWal(db: SQLiteDatabase) {
     try {
-      db.rawQuery("PRAGMA wal_checkpoint(FULL);", null)?.close()
+      db.rawQuery("PRAGMA wal_checkpoint(PASSIVE);", null)?.close()
     } catch (_: Exception) {
     }
   }

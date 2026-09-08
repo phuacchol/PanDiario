@@ -284,7 +284,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Garantiza que exista la fila singleton de wallet y un ciclo abierto;
   // se ejecuta una sola vez, en la primera carga de la app.
   const ensureBootstrap = useCallback(async (db: NonNullable<Awaited<ReturnType<typeof getDb>>>) => {
-    let walletRow = await db.getFirstAsync<any>(`SELECT * FROM wallet WHERE id = 'main'`).catch(() => null);
+    // Distingue "la fila no existe todavía" (cuenta recién creada, hay que
+    // sembrar una wallet en cero) de "la consulta falló" (ej. SQLITE_BUSY
+    // por contención momentánea con la conexión nativa del overlay -ver
+    // busy_timeout/wal_checkpoint PASSIVE en PanDb.kt.template-). Tratar
+    // ambos casos igual era el bug real detrás de "la app se abre vacía":
+    // un error transitorio de lectura hacía that este código creyera que
+    // no había wallet y sembrara una en cero, pisando la real en el
+    // primer guardado siguiente. Ahora, si la consulta falla, se aborta
+    // sin tocar nada -el próximo refresh (evento nativo o AppState)
+    // vuelve a intentarlo con los datos reales intactos-.
+    let walletRow: any = null;
+    let readFailed = false;
+    try {
+      walletRow = await db.getFirstAsync<any>(`SELECT * FROM wallet WHERE id = 'main'`);
+    } catch {
+      readFailed = true;
+    }
+    if (readFailed) return { walletRow: null, openCycle: null, ok: false };
+
     if (!walletRow) {
       const now = todayISO();
       await db.runAsync(
@@ -309,9 +327,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     // Categorías base predeterminadas para la Calculadora de Presupuesto:
     // solo se siembran una vez, si la tabla está totalmente vacía (cuenta
-    // recién creada) -así no reaparecen si el usuario borró todo a propósito.
-    const categoryCountRow = await db.getFirstAsync<any>(`SELECT COUNT(*) as n FROM budget_categories`).catch(() => null);
-    if (!categoryCountRow || Number(categoryCountRow.n) === 0) {
+    // recién creada) -así no reaparecen si el usuario borró todo a propósito-.
+    // Igual que con la wallet: si la consulta de conteo falla, no se
+    // interpreta como "0 categorías" -evita sembrar duplicados por un
+    // error transitorio de lectura-.
+    let categoryCountRow: any = null;
+    try {
+      categoryCountRow = await db.getFirstAsync<any>(`SELECT COUNT(*) as n FROM budget_categories`);
+    } catch {
+      categoryCountRow = undefined; // undefined = no se pudo leer; null = distinto de "falló"
+    }
+    if (categoryCountRow !== undefined && (!categoryCountRow || Number(categoryCountRow.n) === 0)) {
       const now = todayISO();
       for (const name of DEFAULT_VITAL_CATEGORIES) {
         await db.runAsync(`INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, 'vital', ?, 0, ?)`, [newId("cat"), name, now]).catch(() => {});
@@ -321,7 +347,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    return { walletRow, openCycle };
+    return { walletRow, openCycle, ok: true };
   }, []);
 
   const refresh = useCallback(async () => {
@@ -331,7 +357,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { walletRow, openCycle } = await ensureBootstrap(db);
+    const { walletRow, openCycle, ok } = await ensureBootstrap(db);
+    if (!ok) {
+      // Lectura inicial fallida (ej. SQLITE_BUSY momentáneo mientras el
+      // overlay nativo escribe): se aborta sin tocar el estado en
+      // memoria -mejor mantener los datos reales que ya se tenían que
+      // reemplazarlos por un wallet en cero-. El próximo evento de
+      // sincronización o cambio de AppState vuelve a intentarlo.
+      setLoading(false);
+      return;
+    }
     setWallet(mapWalletRow(walletRow));
     setOpenCycleId(openCycle?.id || null);
 

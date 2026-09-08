@@ -29,6 +29,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
   try {
     await db.execAsync(`
       PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 3000;
 
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
