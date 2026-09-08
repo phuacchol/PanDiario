@@ -2,6 +2,7 @@ package __PACKAGE__.overlay
 
 import android.content.Context
 import com.facebook.react.ReactApplication
+import com.facebook.react.bridge.ReactContext
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
 // Puente de eventos nativo -> JS: cada vez que PanDb escribe algo desde el
@@ -12,11 +13,28 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 // Application de Expo/RN implementa ReactApplication, así que se puede
 // llegar al ReactContext actual desde cualquier Context -incluido este
 // Service- sin guardar una referencia estática propia.
+//
+// CRÍTICO: esta app corre con la New Architecture (newArchEnabled=true en
+// app.json). ReactApplication.reactNativeHost.reactInstanceManager es la
+// API del bridge legacy -en react-native 0.81.5, ReactApplication.kt la
+// marca @Deprecated explícitamente: "You should not use ReactNativeHost
+// directly in the New Architecture. Use ReactHost instead."-. Bajo
+// Bridgeless, reactInstanceManager pasa por el shim de compatibilidad de
+// ReactNativeHostWrapper y su currentReactContext no refleja de forma
+// confiable el contexto realmente activo -por eso el evento se guardaba
+// en disco correctamente pero nunca llegaba a la app abierta: se leía un
+// ReactContext nulo o obsoleto y el emit se descartaba en silencio-.
+// ReactHost.currentReactContext (com.facebook.react.ReactHost, también en
+// 0.81.5) es la propiedad correcta y soportada bajo la New Architecture;
+// se usa como camino principal, con el bridge legacy solo como respaldo
+// por si alguna vez se compilara con newArchEnabled=false.
 object NativeSync {
   fun emitDatabaseSyncRequired(context: Context) {
     try {
       val reactApplication = context.applicationContext as? ReactApplication ?: return
-      val reactContext = reactApplication.reactNativeHost.reactInstanceManager.currentReactContext ?: return
+      val reactContext: ReactContext = reactApplication.reactHost?.currentReactContext
+        ?: reactApplication.reactNativeHost.reactInstanceManager.currentReactContext
+        ?: return
       reactContext
         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
         .emit("onDatabaseSyncRequired", null)

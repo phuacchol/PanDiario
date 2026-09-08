@@ -1366,7 +1366,11 @@ class OverlayBubbleService : Service() {
             }
           }
           lp.x = initialX + dx
-          lp.y = initialY + dy
+          // Cota superior: nunca deja que la burbuja se meta bajo la barra
+          // de estado -ahí el sistema le roba el touch al panel de
+          // notificaciones y la burbuja queda inalcanzable-. Se aplica en
+          // tiempo real durante el arrastre, no solo al soltar.
+          lp.y = (initialY + dy).coerceAtLeast(minBubbleY())
           try {
             windowManager?.updateViewLayout(v, lp)
           } catch (_: Exception) {
@@ -1383,6 +1387,11 @@ class OverlayBubbleService : Service() {
             if (overDismiss) {
               stopSelf()
             } else {
+              // Red de seguridad además del clamp de ACTION_MOVE: si por
+              // cualquier motivo la burbuja quedó por encima del límite,
+              // rebota de vuelta con una animación corta -igual que el
+              // imán de borde en X-.
+              if (lp.y < minBubbleY()) animateBubbleY(v, lp, minBubbleY())
               snapToNearestEdge(v, lp)
             }
           }
@@ -1487,6 +1496,29 @@ class OverlayBubbleService : Service() {
     animator.duration = 220
     animator.addUpdateListener { anim ->
       lp.x = anim.animatedValue as Int
+      try { windowManager?.updateViewLayout(view, lp) } catch (_: Exception) {
+      }
+    }
+    animator.start()
+  }
+
+  // Altura real de la barra de estado del dispositivo (varía por
+  // fabricante/muesca de cámara) + un margen de seguridad, para que la
+  // burbuja nunca quede debajo de ella -ahí el sistema prioriza el gesto
+  // de abrir el panel de notificaciones y la burbuja queda inalcanzable-.
+  private fun minBubbleY(): Int {
+    val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+    val statusBarHeight = if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
+    return statusBarHeight + dp(16)
+  }
+
+  private fun animateBubbleY(view: View, lp: WindowManager.LayoutParams, targetY: Int) {
+    val startY = lp.y
+    if (startY == targetY) return
+    val animator = ValueAnimator.ofInt(startY, targetY)
+    animator.duration = 220
+    animator.addUpdateListener { anim ->
+      lp.y = anim.animatedValue as Int
       try { windowManager?.updateViewLayout(view, lp) } catch (_: Exception) {
       }
     }
