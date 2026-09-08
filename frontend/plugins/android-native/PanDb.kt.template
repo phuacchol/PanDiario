@@ -21,6 +21,18 @@ import kotlin.math.min
 // excepción se traga (nunca debe tumbar un Service en primer plano) y
 // devuelve un resultado nulo/false que la UI del overlay interpreta como
 // "no se pudo, vuelve a intentar".
+//
+// Toda escritura sigue el mismo patrón: transacción explícita
+// (beginTransaction/setTransactionSuccessful/endTransaction) -> si
+// confirmó, PRAGMA wal_checkpoint(FULL) mientras la conexión sigue
+// abierta -expo-sqlite abre la base en modo WAL; sin este checkpoint,
+// una lectura de React Native desde SU PROPIA conexión podría no ver de
+// inmediato lo que este proceso acaba de escribir, porque WAL permite
+// que lectores vean una versión distinta del archivo hasta que el
+// checkpoint vacía el log al archivo principal- -> recién ahí se cierra
+// la conexión y se emite NativeSync.emitDatabaseSyncRequired(). Este
+// orden importa: emitir antes del checkpoint podría hacer que
+// DataContext refresque y todavía no vea la escritura.
 object PanDb {
   data class ListRow(val id: String, val listCode: String, val title: String, val status: String)
   data class EntryRow(val id: String, val text: String, val done: Boolean, val extra: Boolean)
@@ -45,6 +57,17 @@ object PanDb {
   }
 
   private fun newId(prefix: String): String = "${prefix}_${System.currentTimeMillis()}_${(Math.random() * 10000).toInt()}"
+
+  // Fuerza el vaciado del WAL al archivo principal -ver comentario de
+  // cabecera-. Debe llamarse con `db` todavía abierto, después de que la
+  // transacción ya confirmó (endTransaction), y solo si la escritura
+  // realmente tuvo éxito.
+  private fun checkpointWal(db: SQLiteDatabase) {
+    try {
+      db.rawQuery("PRAGMA wal_checkpoint(FULL);", null)?.close()
+    } catch (_: Exception) {
+    }
+  }
 
   fun getInProgressList(context: Context): ListRow? {
     val db = open(context) ?: return null
@@ -95,13 +118,21 @@ object PanDb {
 
   fun toggleEntryDone(context: Context, entryId: String, done: Boolean) {
     val db = open(context) ?: return
+    var ok = false
     try {
+      db.beginTransaction()
       db.execSQL("UPDATE list_entries SET done = ? WHERE id = ?", arrayOf(if (done) 1 else 0, entryId))
-      NativeSync.emitDatabaseSyncRequired(context)
+      db.setTransactionSuccessful()
+      ok = true
     } catch (_: Exception) {
+      ok = false
     } finally {
+      try { db.endTransaction() } catch (_: Exception) {
+      }
+      if (ok) checkpointWal(db)
       db.close()
     }
+    if (ok) NativeSync.emitDatabaseSyncRequired(context)
   }
 
   // Todo ítem agregado desde el panel flotante mientras la lista está en
@@ -109,18 +140,25 @@ object PanDb {
   // los agregados desde el modo Editar del modal en-app).
   fun addEntry(context: Context, listId: String, text: String): Boolean {
     val db = open(context) ?: return false
+    var ok = false
     try {
+      db.beginTransaction()
       db.execSQL(
         "INSERT INTO list_entries (id, list_id, text, done, extra, created_at) VALUES (?, ?, ?, 0, 1, ?)",
         arrayOf(newId("entry"), listId, text, isoNow())
       )
-      NativeSync.emitDatabaseSyncRequired(context)
-      return true
+      db.setTransactionSuccessful()
+      ok = true
     } catch (_: Exception) {
-      return false
+      ok = false
     } finally {
+      try { db.endTransaction() } catch (_: Exception) {
+      }
+      if (ok) checkpointWal(db)
       db.close()
     }
+    if (ok) NativeSync.emitDatabaseSyncRequired(context)
+    return ok
   }
 
   // Bloqueo estructural: solo se permite borrar ítems 'extra'. Los ítems
@@ -129,15 +167,21 @@ object PanDb {
   // intento sea un no-op silencioso sobre un ítem base, no un error-.
   fun deleteExtraEntry(context: Context, entryId: String): Boolean {
     val db = open(context) ?: return false
+    var deleted = false
     try {
-      val deleted = db.delete("list_entries", "id = ? AND extra = 1", arrayOf(entryId)) > 0
-      if (deleted) NativeSync.emitDatabaseSyncRequired(context)
-      return deleted
+      db.beginTransaction()
+      deleted = db.delete("list_entries", "id = ? AND extra = 1", arrayOf(entryId)) > 0
+      db.setTransactionSuccessful()
     } catch (_: Exception) {
-      return false
+      deleted = false
     } finally {
+      try { db.endTransaction() } catch (_: Exception) {
+      }
+      if (deleted) checkpointWal(db)
       db.close()
     }
+    if (deleted) NativeSync.emitDatabaseSyncRequired(context)
+    return deleted
   }
 
   fun getOpenCycleId(context: Context): String? {
@@ -234,12 +278,6 @@ object PanDb {
   ): Boolean {
     val cycleId = getOpenCycleId(context) ?: return false
     val db = open(context) ?: return false
-    // El evento a JS se emite DESPUÉS de endTransaction() (en el finally),
-    // nunca antes: setTransactionSuccessful() solo marca la intención de
-    // confirmar, el commit real ocurre recién en endTransaction(). Emitir
-    // antes arriesgaría que DataContext refresque y lea la base justo
-    // antes de que el commit exista -la misma condición de carrera que
-    // esta directiva pide evitar-.
     var ok = false
     try {
       db.beginTransaction()
@@ -260,6 +298,7 @@ object PanDb {
         db.endTransaction()
       } catch (_: Exception) {
       }
+      if (ok) checkpointWal(db)
       db.close()
     }
     if (ok) NativeSync.emitDatabaseSyncRequired(context)
@@ -271,15 +310,22 @@ object PanDb {
   // completeList({ registerExpense: false }) en DataContext.tsx-.
   fun archiveListWithoutExpense(context: Context, listId: String): Boolean {
     val db = open(context) ?: return false
+    var ok = false
     try {
+      db.beginTransaction()
       db.execSQL("UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?", arrayOf(isoNow(), listId))
-      NativeSync.emitDatabaseSyncRequired(context)
-      return true
+      db.setTransactionSuccessful()
+      ok = true
     } catch (_: Exception) {
-      return false
+      ok = false
     } finally {
+      try { db.endTransaction() } catch (_: Exception) {
+      }
+      if (ok) checkpointWal(db)
       db.close()
     }
+    if (ok) NativeSync.emitDatabaseSyncRequired(context)
+    return ok
   }
 
   // Ventana nativa "Nuevo Ingreso" del menú de la burbuja. Los ingresos
@@ -305,6 +351,7 @@ object PanDb {
     } finally {
       try { db.endTransaction() } catch (_: Exception) {
       }
+      if (ok) checkpointWal(db)
       db.close()
     }
     if (ok) NativeSync.emitDatabaseSyncRequired(context)
@@ -335,6 +382,7 @@ object PanDb {
     } finally {
       try { db.endTransaction() } catch (_: Exception) {
       }
+      if (ok) checkpointWal(db)
       db.close()
     }
     if (ok) NativeSync.emitDatabaseSyncRequired(context)
@@ -345,18 +393,25 @@ object PanDb {
   // recordatorio -el selector de hora estricto solo existe en la app-.
   fun addNote(context: Context, subject: String, text: String): Boolean {
     val db = open(context) ?: return false
+    var ok = false
     try {
+      db.beginTransaction()
       db.execSQL(
         "INSERT INTO notes (id, subject, text, pinned, is_reminder, remind_at, lead_minutes, notification_id, done, completed_at, created_at) VALUES (?, ?, ?, 0, 0, NULL, 15, NULL, 0, NULL, ?)",
         arrayOf(newId("note"), subject.trim(), text.trim(), isoNow())
       )
-      NativeSync.emitDatabaseSyncRequired(context)
-      return true
+      db.setTransactionSuccessful()
+      ok = true
     } catch (_: Exception) {
-      return false
+      ok = false
     } finally {
+      try { db.endTransaction() } catch (_: Exception) {
+      }
+      if (ok) checkpointWal(db)
       db.close()
     }
+    if (ok) NativeSync.emitDatabaseSyncRequired(context)
+    return ok
   }
 
   // Ventana nativa "Nueva Lista" del menú de la burbuja (solo cuando no
@@ -401,6 +456,7 @@ object PanDb {
     } finally {
       try { db.endTransaction() } catch (_: Exception) {
       }
+      if (resultId != null) checkpointWal(db)
       db.close()
     }
     if (resultId != null) NativeSync.emitDatabaseSyncRequired(context)
