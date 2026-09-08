@@ -357,6 +357,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Diagnóstico + defensa: si esta conexión JS (la misma vive abierta
+    // durante toda la sesión, ver dbInstance en localDb.ts) quedó adentro
+    // de una transacción sin confirmar -por ejemplo, un withTransactionAsync
+    // de deleteList/deleteCycle que lanzó una excepción a mitad de camino y
+    // no hizo rollback-, SQLite en modo WAL sigue viendo la misma foto de
+    // la base tomada al abrir esa transacción para SIEMPRE, sin importar
+    // cuántas veces se repita esta consulta (evento, polling o el botón
+    // manual de Actualizar): todos disparan este mismo refresh() sobre la
+    // misma conexión atascada. Un reinicio completo de la app sí lo
+    // arregla porque abre una conexión nueva, sin ese arrastre -coincide
+    // exactamente con el patrón reportado-. Se loguea siempre (para
+    // confirmar o descartar esta hipótesis con evidencia real de logcat) y
+    // se fuerza el ROLLBACK si corresponde, antes de leer nada.
+    try {
+      const stuck = await db.isInTransactionAsync();
+      console.log("PANDIARIO_SYNC refresh() isInTransaction=", stuck);
+      if (stuck) {
+        await db.execAsync("ROLLBACK;").catch((e) => console.warn("PANDIARIO_SYNC ROLLBACK falló:", e));
+      }
+    } catch (e) {
+      console.warn("PANDIARIO_SYNC isInTransactionAsync falló:", e);
+    }
+
     const { walletRow, openCycle, ok } = await ensureBootstrap(db);
     if (!ok) {
       // Lectura inicial fallida (ej. SQLITE_BUSY momentáneo mientras el
@@ -407,9 +430,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // tiempo que la app estuvo en segundo plano.
   useEffect(() => {
     const syncSub = DeviceEventEmitter.addListener("onDatabaseSyncRequired", () => {
+      console.log("PANDIARIO_SYNC onDatabaseSyncRequired recibido");
       refresh();
     });
     const appStateSub = AppState.addEventListener("change", (state) => {
+      console.log("PANDIARIO_SYNC AppState change ->", state);
       if (state === "active") refresh();
     });
     return () => {
@@ -432,6 +457,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // nativos fallen en silencio.
   useEffect(() => {
     const interval = setInterval(() => {
+      console.log("PANDIARIO_SYNC poll tick");
       refresh();
     }, 2500);
     return () => clearInterval(interval);
