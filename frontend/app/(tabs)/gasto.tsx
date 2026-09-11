@@ -2,15 +2,15 @@ import { useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput, Alert } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader";
 import { EmptyState } from "@/src/components/Mascot";
-import { Button, Field, Segmented, ChipRow, InputPrompt } from "@/src/components/ui";
-import { CategoryAutocomplete } from "@/src/components/CategoryAutocomplete";
-import { OriginGrid } from "@/src/components/OriginGrid";
+import { ChipRow, InputPrompt } from "@/src/components/ui";
 import { TransactionCard } from "@/src/components/TransactionCard";
+import { ModalFormHeader, ModalFormField, ModalFormSegmented, ModalFormOriginGrid, ModalFormButton } from "@/src/components/ModalForm";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type Transaction, type Origin, type Method } from "@/src/context/DataContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE, ORIGIN_HEADER_COLORS } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, ORIGIN_HEADER_COLORS, MODAL_FORM_BG_GRADIENT } from "@/src/theme/theme";
 import { formatMoney } from "@/src/utils/format";
 
 // Misma regla que antes pintaba el borde lateral de cada fila de Gasto según
@@ -158,23 +158,23 @@ export default function GastoScreen() {
 
       <Modal visible={showEditor} transparent animationType="slide" onRequestClose={() => setShowEditor(false)}>
         <View style={styles.backdrop}>
-          <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
+          <LinearGradient colors={MODAL_FORM_BG_GRADIENT} style={styles.sheet}>
             <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md }} bottomOffset={20}>
               <View style={styles.sheetHeader}>
                 <View style={styles.sheetHeaderSpacer} />
-                <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>{editingId ? "EDITAR GASTO" : "NUEVO GASTO"}</Text>
+                <ModalFormHeader icon="arrow-up-circle" title={editingId ? "Editar Gasto" : "Nuevo Gasto"} />
                 <Pressable onPress={() => setShowEditor(false)} hitSlop={8} testID="gasto-editor-close" style={styles.sheetHeaderSpacer}>
-                  <Feather name="x" size={22} color={colors.onSurfaceTertiary} />
+                  <Feather name="x" size={22} color="#94A3B8" />
                 </Pressable>
               </View>
 
-              <Field label="Monto" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={amount} onChangeText={setAmount} testID="gasto-amount-input" />
-              <Segmented
+              <ModalFormField label="Monto" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={amount} onChangeText={setAmount} testID="gasto-amount-input" />
+              <ModalFormSegmented
                 testID="gasto-method"
                 options={[
-                  { key: "efectivo", label: "Efectivo" },
-                  { key: "transferencia", label: "Transferencia" },
-                  { key: "mixto", label: "Mixto" },
+                  { key: "efectivo", label: "Efectivo", icon: "dollar-sign" },
+                  { key: "transferencia", label: "Transferencia", icon: "repeat" },
+                  { key: "mixto", label: "Mixto", icon: "layers" },
                 ]}
                 value={method}
                 onChange={(k) => setMethod(k as Method)}
@@ -182,24 +182,24 @@ export default function GastoScreen() {
 
               {method === "mixto" ? (
                 <View style={{ gap: SPACING.xs }}>
-                  <Field label="Efectivo pagado" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="gasto-cash-input" />
-                  <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm }}>
+                  <ModalFormField label="Efectivo pagado" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="gasto-cash-input" />
+                  <Text style={{ color: "#94A3B8", fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm, marginLeft: 2 }}>
                     Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
                   </Text>
                 </View>
               ) : null}
 
               <View style={{ gap: SPACING.xs }}>
-                <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Origen del dinero</Text>
-                <OriginGrid value={origin} onChange={setOrigin} testID="gasto-origin-grid" />
+                <Text style={styles.label}>Origen del dinero</Text>
+                <ModalFormOriginGrid value={origin} onChange={setOrigin} testID="gasto-origin-grid" />
               </View>
 
-              <CategoryAutocomplete value={category} onChange={setCategory} categories={budgetCategories} testID="gasto-category-input" />
+              <ModalFormField label="Categoría" icon="tag" placeholder="Otros" value={category} onChangeText={setCategory} testID="gasto-category-input" />
 
-              <Field label="Nota (opcional)" icon="edit-2" placeholder="Detalle del gasto" value={note} onChangeText={setNote} testID="gasto-note-input" />
-              <Button title={editingId ? "Guardar cambios" : "Registrar Gasto"} icon="check" onPress={onSubmit} testID="gasto-submit-button" style={{ backgroundColor: colors.error }} />
+              <ModalFormField label="Nota (opcional)" icon="edit-2" placeholder="Detalle del gasto" value={note} onChangeText={setNote} testID="gasto-note-input" />
+              <ModalFormButton title={editingId ? "Guardar Cambios" : "Registrar Gasto"} onPress={onSubmit} testID="gasto-submit-button" />
             </KeyboardAwareScrollView>
-          </View>
+          </LinearGradient>
         </View>
       </Modal>
 
@@ -216,11 +216,10 @@ export default function GastoScreen() {
 
 const styles = StyleSheet.create({
   addCatChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: SPACING.md, height: 32, borderRadius: RADIUS.pill },
-  label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
+  label: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base, marginLeft: 2, color: "#1E1B38" },
   fab: { position: "absolute", right: SPACING.lg, bottom: SPACING.xl, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", elevation: 6, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   backdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.5)", justifyContent: "flex-end" },
   sheet: { borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.xl, maxHeight: "85%" },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: SPACING.sm },
   sheetHeaderSpacer: { width: 22 },
-  sheetTitle: { flex: 1, textAlign: "center", fontFamily: FONTS.bold, fontWeight: "700", fontSize: FONT_SIZE.lg },
 });

@@ -2,14 +2,16 @@ import { useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader";
 import { EmptyState } from "@/src/components/Mascot";
-import { Button, Field, ChipRow, Segmented } from "@/src/components/ui";
+import { ChipRow } from "@/src/components/ui";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
 import { TimePickerModal } from "@/src/components/TimePickerModal";
+import { ModalFormHeader, ModalFormField, ModalFormSegmented, ModalFormButton } from "@/src/components/ModalForm";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type Note } from "@/src/context/DataContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE, paletteColor } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, paletteColor, MODAL_FORM_BG_GRADIENT } from "@/src/theme/theme";
 import { formatLocalDate, formatLocalTime } from "@/src/utils/format";
 import { LEAD_TIME_OPTIONS } from "@/src/constants";
 
@@ -251,60 +253,53 @@ export default function NotaScreen() {
 
       <Modal visible={showEditor} transparent animationType="slide" onRequestClose={() => setShowEditor(false)}>
         <View style={styles.backdrop}>
-          <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
+          <LinearGradient colors={MODAL_FORM_BG_GRADIENT} style={styles.sheet}>
             <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md }} bottomOffset={20}>
               <View style={styles.sheetHeader}>
-                <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>{editingId ? "Editar" : "Nuevo"}</Text>
-                <Pressable onPress={() => setShowEditor(false)} hitSlop={8} testID="nota-editor-close">
-                  <Feather name="x" size={22} color={colors.onSurfaceTertiary} />
+                <View style={styles.sheetHeaderSpacer} />
+                <ModalFormHeader icon="edit-3" title={editingId ? "Editar Nota" : kind === "recordatorio" ? "Nuevo Recordatorio" : "Nueva Nota"} />
+                <Pressable onPress={() => setShowEditor(false)} hitSlop={8} testID="nota-editor-close" style={styles.sheetHeaderSpacer}>
+                  <Feather name="x" size={22} color="#94A3B8" />
                 </Pressable>
               </View>
 
               {!editingId ? (
-                <Segmented
+                <ModalFormSegmented
                   testID="nota-kind-tabs"
                   options={[
-                    { key: "nota", label: "Nota" },
-                    { key: "recordatorio", label: "Recordatorio" },
+                    { key: "nota", label: "Nota", icon: "edit-3" },
+                    { key: "recordatorio", label: "Recordatorio", icon: "bell" },
                   ]}
                   value={kind}
                   onChange={(k) => setKind(k as any)}
                 />
               ) : null}
 
-              <Field label="Asunto" placeholder="Título breve" value={subject} onChangeText={setSubject} testID="nota-subject-input" />
-              <Field label="Texto" placeholder="Detalle..." multiline numberOfLines={4} value={text} onChangeText={setText} testID="nota-text-input" />
+              <ModalFormField label="Asunto" icon="tag" placeholder="Título breve" value={subject} onChangeText={setSubject} testID="nota-subject-input" />
+              <ModalFormField label="Texto" icon="align-left" placeholder="Detalle..." multiline numberOfLines={4} value={text} onChangeText={setText} testID="nota-text-input" />
 
               {kind === "recordatorio" ? (
                 <View style={{ gap: SPACING.sm }}>
-                  <Pressable
-                    style={[styles.dateBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}
-                    onPress={() => setShowDatePicker(true)}
-                    testID="nota-date-button"
-                  >
-                    <Feather name="calendar" size={16} color={colors.onSurfaceTertiary} />
-                    <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{date ? formatLocalDate(date, { withYear: true }) : "Elegir fecha"}</Text>
+                  <Pressable style={formStyles.dateBtn} onPress={() => setShowDatePicker(true)} testID="nota-date-button">
+                    <Feather name="calendar" size={16} color="#4A72FF" />
+                    <Text style={formStyles.dateBtnText}>{date ? formatLocalDate(date, { withYear: true }) : "Elegir fecha"}</Text>
                   </Pressable>
 
-                  <Pressable
-                    style={[styles.dateBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}
-                    onPress={() => setShowTimePicker(true)}
-                    testID="nota-time-button"
-                  >
-                    <Feather name="clock" size={16} color={colors.onSurfaceTertiary} />
-                    <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{`${hour}:${minute}`}</Text>
+                  <Pressable style={formStyles.dateBtn} onPress={() => setShowTimePicker(true)} testID="nota-time-button">
+                    <Feather name="clock" size={16} color="#4A72FF" />
+                    <Text style={formStyles.dateBtnText}>{`${hour}:${minute}`}</Text>
                   </Pressable>
 
                   <View style={{ gap: SPACING.xs }}>
-                    <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Avisar con anticipación</Text>
+                    <Text style={formStyles.label}>Avisar con anticipación</Text>
                     <ChipRow options={LEAD_TIME_OPTIONS.map((o) => ({ key: o.key, label: o.label }))} value={leadMinutes} onChange={setLeadMinutes} testID="nota-lead-chips" />
                   </View>
                 </View>
               ) : null}
 
-              <Button title={editingId ? "Guardar cambios" : "Guardar"} icon="check" onPress={onSubmit} testID="nota-submit-button" />
+              <ModalFormButton title={editingId ? "Guardar Cambios" : "Guardar Nota"} onPress={onSubmit} testID="nota-submit-button" />
             </KeyboardAwareScrollView>
-          </View>
+          </LinearGradient>
         </View>
       </Modal>
 
@@ -379,7 +374,6 @@ export default function NotaScreen() {
 }
 
 const styles = StyleSheet.create({
-  label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
   noteCard: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADIUS.md },
   noteSubject: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
   noteText: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm, marginTop: 2 },
@@ -388,8 +382,24 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.5)", justifyContent: "flex-end" },
   sheet: { borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.xl, maxHeight: "85%" },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: SPACING.sm },
+  sheetHeaderSpacer: { width: 22 },
   sheetTitle: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg },
-  dateBtn: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, height: 48, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md },
+});
+
+const formStyles = StyleSheet.create({
+  label: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base, marginLeft: 2, color: "#1E1B38" },
+  dateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    height: 52,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: SPACING.md,
+  },
+  dateBtnText: { color: "#1E1B38", fontFamily: FONTS.medium },
 });
 
 const headerStyles = StyleSheet.create({

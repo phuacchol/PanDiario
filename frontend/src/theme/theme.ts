@@ -108,6 +108,12 @@ export function paletteColor(id: string, palette: readonly string[]): string {
   return palette[hash % palette.length];
 }
 
+// Botón principal de acción de los paneles modales de creación (Nuevo
+// Gasto/Ingreso/Lista/Nota) y fondo del propio panel: sistema visual propio,
+// fijo (no reactivo a claro/oscuro) igual que DarkHeader es siempre oscuro.
+export const MODAL_FORM_BUTTON_GRADIENT = ["#4A72FF", "#7048E8"] as const;
+export const MODAL_FORM_BG_GRADIENT = ["#F4F6FB", "#FFFFFF"] as const;
+
 export const FONTS = {
   regular: "Nunito",
   medium: "Nunito-SemiBold",

@@ -5,13 +5,13 @@ import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader";
 import { EmptyState } from "@/src/components/Mascot";
-import { Button, Field } from "@/src/components/ui";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
 import { TimePickerModal } from "@/src/components/TimePickerModal";
 import { CompraOverlayModal } from "@/src/components/home/CompraOverlayModal";
+import { ModalFormHeader, ModalFormField, ModalFormButton } from "@/src/components/ModalForm";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type ListRecord, type ListEntry } from "@/src/context/DataContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE, NETO_GRADIENT, paletteColor } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, NETO_GRADIENT, paletteColor, MODAL_FORM_BG_GRADIENT } from "@/src/theme/theme";
 import { formatLocalDate, formatLocalTime } from "@/src/utils/format";
 
 type Panel = "listas" | "programadas";
@@ -256,73 +256,73 @@ export default function ListaScreen() {
 
       <Modal visible={showNew} transparent animationType="fade" onRequestClose={() => setShowNew(false)}>
         <View style={styles.backdrop}>
-          <View style={[styles.newCard, { backgroundColor: colors.surfaceSecondary }]}>
+          <LinearGradient colors={MODAL_FORM_BG_GRADIENT} style={styles.newCard}>
             <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md }} bottomOffset={20}>
-              <Text style={[styles.cardTitle, { color: colors.onSurface }]}>Nueva lista</Text>
-              <Field label="Nombre" placeholder="Ej. Compras del súper" value={newTitle} onChangeText={setNewTitle} testID="lista-new-title" />
+              <ModalFormHeader icon="check-square" title="Nueva Lista" />
+              <ModalFormField label="Nombre de la lista" icon="edit-3" placeholder="Ej. Compras del súper" value={newTitle} onChangeText={setNewTitle} testID="lista-new-title" />
 
               <View style={{ gap: SPACING.xs }}>
-                <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Ítems</Text>
-                <View style={[styles.addItemRow, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
+                <Text style={formStyles.label}>Ítems</Text>
+                <View style={formStyles.addItemRow}>
                   <TextInput
                     value={draftItemText}
                     onChangeText={setDraftItemText}
                     placeholder="Ej. 5 panes"
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    style={[styles.addItemInput, { color: colors.onSurface }]}
+                    placeholderTextColor="#94A3B8"
+                    style={formStyles.addItemInput}
                     onSubmitEditing={addDraftItem}
                     testID="lista-new-item-input"
                   />
-                  <Pressable onPress={addDraftItem} style={[styles.addItemBtn, { backgroundColor: colors.brand }]} testID="lista-new-item-add">
-                    <Feather name="plus" size={18} color={colors.onBrand} />
+                  <Pressable onPress={addDraftItem} style={formStyles.addItemBtn} testID="lista-new-item-add">
+                    <Feather name="plus" size={18} color="#FFFFFF" />
                   </Pressable>
                 </View>
 
                 {draftItems.map((item) => (
-                  <View key={item.id} style={[styles.draftItemRow, { backgroundColor: colors.surfaceTertiary }]}>
+                  <View key={item.id} style={formStyles.draftItemRow}>
                     <Pressable
                       onPress={() => setDraftItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, done: !i.done } : i)))}
                       hitSlop={8}
                       testID={`lista-new-item-toggle-${item.id}`}
                     >
-                      <Feather name={item.done ? "check-circle" : "circle"} size={20} color={item.done ? colors.success : colors.onSurfaceTertiary} />
+                      <Feather name={item.done ? "check-circle" : "circle"} size={20} color={item.done ? "#2ECC71" : "#94A3B8"} />
                     </Pressable>
-                    <Text style={{ flex: 1, color: colors.onSurface, fontFamily: FONTS.medium, textDecorationLine: item.done ? "line-through" : "none" }} numberOfLines={1}>
+                    <Text style={[formStyles.draftItemText, item.done && { textDecorationLine: "line-through" }]} numberOfLines={1}>
                       {item.text}
                     </Text>
                     <Pressable onPress={() => setDraftItems((prev) => prev.filter((i) => i.id !== item.id))} hitSlop={8} testID={`lista-new-item-remove-${item.id}`}>
-                      <Feather name="trash-2" size={18} color={colors.error} />
+                      <Feather name="trash-2" size={18} color="#E55050" />
                     </Pressable>
                   </View>
                 ))}
               </View>
 
               <Pressable style={styles.reminderToggle} onPress={() => setIsProgrammed((v) => !v)} testID="lista-programmed-toggle">
-                <Feather name={isProgrammed ? "check-square" : "square"} size={20} color={colors.brand} />
-                <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>Lista programada</Text>
+                <Feather name={isProgrammed ? "check-square" : "square"} size={20} color="#4A72FF" />
+                <Text style={formStyles.toggleText}>Lista programada</Text>
               </Pressable>
 
               {isProgrammed ? (
                 <View style={{ gap: SPACING.sm }}>
-                  <Pressable style={[styles.dateBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]} onPress={() => setShowDatePicker(true)} testID="lista-date-button">
-                    <Feather name="calendar" size={16} color={colors.onSurfaceTertiary} />
-                    <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{date ? formatLocalDate(date, { withYear: true }) : "Elegir fecha"}</Text>
+                  <Pressable style={formStyles.dateBtn} onPress={() => setShowDatePicker(true)} testID="lista-date-button">
+                    <Feather name="calendar" size={16} color="#4A72FF" />
+                    <Text style={formStyles.dateBtnText}>{date ? formatLocalDate(date, { withYear: true }) : "Elegir fecha"}</Text>
                   </Pressable>
-                  <Pressable style={[styles.dateBtn, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]} onPress={() => setShowTimePicker(true)} testID="lista-time-button">
-                    <Feather name="clock" size={16} color={colors.onSurfaceTertiary} />
-                    <Text style={{ color: colors.onSurface, fontFamily: FONTS.medium }}>{`${hour}:${minute}`}</Text>
+                  <Pressable style={formStyles.dateBtn} onPress={() => setShowTimePicker(true)} testID="lista-time-button">
+                    <Feather name="clock" size={16} color="#4A72FF" />
+                    <Text style={formStyles.dateBtnText}>{`${hour}:${minute}`}</Text>
                   </Pressable>
                 </View>
               ) : null}
 
               <View style={{ flexDirection: "row", gap: SPACING.md }}>
                 <Pressable style={styles.cancelBtn} onPress={() => setShowNew(false)} testID="lista-new-cancel">
-                  <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>Cancelar</Text>
+                  <Text style={formStyles.cancelText}>Cancelar</Text>
                 </Pressable>
-                <Button title="Crear" onPress={onCreate} loading={isCreating} disabled={isCreating} style={{ flex: 1 }} testID="lista-new-submit" />
+                <ModalFormButton title="Crear Lista" onPress={onCreate} loading={isCreating} disabled={isCreating} style={{ flex: 1 }} testID="lista-new-submit" />
               </View>
             </KeyboardAwareScrollView>
-          </View>
+          </LinearGradient>
         </View>
       </Modal>
 
@@ -460,7 +460,6 @@ export default function ListaScreen() {
 }
 
 const styles = StyleSheet.create({
-  label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
   card: { flexDirection: "row", alignItems: "center", gap: SPACING.md, padding: SPACING.md, borderRadius: RADIUS.md },
   cardTitle: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
   cardMeta: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, marginTop: 2 },
@@ -482,12 +481,47 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.5)", alignItems: "center", justifyContent: "center", padding: SPACING.xl },
   newCard: { width: "100%", maxWidth: 380, maxHeight: "85%", borderRadius: RADIUS.lg, padding: SPACING.xl },
   reminderToggle: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
-  dateBtn: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, height: 48, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md },
-  cancelBtn: { flex: 1, height: 48, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center" },
-  addItemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, borderWidth: 1, paddingLeft: SPACING.md, paddingRight: 6, height: 48 },
-  addItemInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
-  addItemBtn: { width: 36, height: 36, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
+  cancelBtn: { flex: 1, height: 56, borderRadius: RADIUS.lg, alignItems: "center", justifyContent: "center" },
   draftItemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.sm, borderRadius: RADIUS.md },
+});
+
+const formStyles = StyleSheet.create({
+  label: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base, marginLeft: 2, color: "#1E1B38" },
+  toggleText: { color: "#1E1B38", fontFamily: FONTS.medium },
+  cancelText: { color: "#94A3B8", fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg },
+  addItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+    paddingLeft: SPACING.md,
+    paddingRight: 6,
+    height: 52,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
+  },
+  addItemInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%", color: "#1E1B38" },
+  addItemBtn: { width: 38, height: 38, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center", backgroundColor: "#4A72FF" },
+  draftItemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.sm, borderRadius: RADIUS.md, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0" },
+  draftItemText: { flex: 1, color: "#1E1B38", fontFamily: FONTS.medium },
+  dateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    height: 52,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: SPACING.md,
+  },
+  dateBtnText: { color: "#1E1B38", fontFamily: FONTS.medium },
 });
 
 const headerStyles = StyleSheet.create({
