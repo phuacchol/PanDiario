@@ -1,24 +1,106 @@
 import { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput, ActivityIndicator } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { TopBar } from "@/src/components/TopBar";
+import { LinearGradient } from "expo-linear-gradient";
 import { EmptyState } from "@/src/components/Mascot";
-import { Button, Field, Segmented } from "@/src/components/ui";
+import { Button, Field } from "@/src/components/ui";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
 import { TimePickerModal } from "@/src/components/TimePickerModal";
 import { CompraOverlayModal } from "@/src/components/home/CompraOverlayModal";
 import { useTheme } from "@/src/theme/ThemeContext";
-import { useData, type ListRecord } from "@/src/context/DataContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
+import { useData, type ListRecord, type ListEntry } from "@/src/context/DataContext";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, NETO_GRADIENT } from "@/src/theme/theme";
 import { formatLocalDate, formatLocalTime } from "@/src/utils/format";
 
 type Panel = "listas" | "programadas";
 type DraftItem = { id: string; text: string; done: boolean };
 
+// Paleta rotativa para la franja de color de cada tarjeta de lista: el color
+// se deriva de forma estable a partir del id de la lista, para que cada una
+// mantenga siempre el mismo color entre refrescos y reordenamientos.
+const LISTA_ACCENT_PALETTE = ["#4A90E2", "#2ECC71", "#9B59B6", "#E67E22", "#1FB6B6", "#E84393"];
+function listAccentColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return LISTA_ACCENT_PALETTE[hash % LISTA_ACCENT_PALETTE.length];
+}
+
+function ListaCard({
+  item,
+  entries,
+  onOpen,
+  onPlay,
+  onEdit,
+  onDelete,
+}: {
+  item: ListRecord;
+  entries: ListEntry[];
+  onOpen: () => void;
+  onPlay: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { colors } = useTheme();
+  const accent = listAccentColor(item.id);
+  const total = entries.length;
+  const done = entries.filter((e) => e.done).length;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const inProgress = item.status === "in_progress";
+
+  return (
+    <View>
+      <View style={[cardStyles.header, { backgroundColor: accent }]}>
+        <Text style={cardStyles.headerCode} numberOfLines={1}>
+          {item.list_code ? `#${item.list_code}` : "LISTA"}
+        </Text>
+      </View>
+      <Pressable style={[cardStyles.body, { backgroundColor: colors.surfaceSecondary }]} onPress={onOpen} testID={`lista-open-${item.id}`}>
+        <Text style={[cardStyles.title, { color: colors.onSurface }]} numberOfLines={1}>
+          {item.title}
+        </Text>
+        {item.is_programmed && item.scheduled_at ? (
+          <Text style={[cardStyles.meta, { color: colors.onSurfaceTertiary }]}>
+            {formatLocalDate(item.scheduled_at)} {formatLocalTime(item.scheduled_at)}
+          </Text>
+        ) : null}
+        <View style={cardStyles.row}>
+          <Pressable style={[cardStyles.playBtn, { backgroundColor: inProgress ? colors.success : accent }]} onPress={onPlay} hitSlop={8} testID={`lista-play-${item.id}`}>
+            <Feather name={inProgress ? "pause" : "play"} size={16} color="#FFFFFF" />
+          </Pressable>
+          <View style={[cardStyles.progressTrack, { backgroundColor: colors.border }]}>
+            <View style={[cardStyles.progressFill, { width: `${pct}%`, backgroundColor: accent }]} />
+          </View>
+          <Pressable style={[cardStyles.actionBtn, { backgroundColor: colors.brand }]} onPress={onEdit} hitSlop={8} testID={`lista-edit-${item.id}`}>
+            <Feather name="edit-2" size={14} color="#FFFFFF" />
+          </Pressable>
+          <Pressable style={[cardStyles.actionBtn, { backgroundColor: colors.error }]} onPress={onDelete} hitSlop={8} testID={`lista-delete-${item.id}`}>
+            <Feather name="trash-2" size={14} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function ListaScreen() {
   const { colors } = useTheme();
-  const { lists, listEntries, addList, deleteList, toggleListPlay, addListEntry, toggleListEntry, deleteListEntry, completeList } = useData();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { lists, listEntries, addList, deleteList, toggleListPlay, addListEntry, toggleListEntry, deleteListEntry, completeList, refresh } = useData();
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefreshPress = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const [panel, setPanel] = useState<Panel>("listas");
   const [search, setSearch] = useState("");
@@ -131,36 +213,56 @@ export default function ListaScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <TopBar title="Lista" />
+      <View style={[headerStyles.wrap, { backgroundColor: colors.heroBg, paddingTop: insets.top + SPACING.sm }]}>
+        <View style={headerStyles.topRow}>
+          <Pressable onPress={() => router.navigate("/(tabs)")} style={headerStyles.iconBtn} testID="lista-home-button">
+            <Feather name="home" size={20} color={colors.heroBg} />
+          </Pressable>
+          <Text style={headerStyles.title} numberOfLines={1}>
+            Listas
+          </Text>
+          <View style={headerStyles.rightGroup}>
+            <Pressable onPress={onRefreshPress} disabled={refreshing} style={headerStyles.iconBtn} testID="lista-refresh-button">
+              {refreshing ? <ActivityIndicator size="small" color={colors.heroBg} /> : <Feather name="refresh-cw" size={20} color={colors.heroBg} />}
+            </Pressable>
+            <Pressable onPress={() => router.push("/settings")} style={headerStyles.iconBtn} testID="lista-settings-button">
+              <Feather name="settings" size={20} color={colors.heroBg} />
+            </Pressable>
+          </View>
+        </View>
 
-      <View style={{ paddingHorizontal: SPACING.lg, gap: SPACING.md }}>
-        <View style={[styles.searchWrap, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
+        <View style={headerStyles.filterRow}>
+          <View style={headerStyles.segmentTrack}>
+            <Pressable
+              style={[headerStyles.segmentItem, panel === "listas" && headerStyles.segmentItemActive]}
+              onPress={() => setPanel("listas")}
+              testID="segment-listas"
+            >
+              <Text style={[headerStyles.segmentText, panel === "listas" && { color: colors.heroBg }]}>Listas</Text>
+            </Pressable>
+            <Pressable
+              style={[headerStyles.segmentItem, panel === "programadas" && headerStyles.segmentItemActive]}
+              onPress={() => setPanel("programadas")}
+              testID="segment-programadas"
+            >
+              <Text style={[headerStyles.segmentText, panel === "programadas" && { color: colors.heroBg }]}>Recordatorios</Text>
+            </Pressable>
+          </View>
+          <Pressable style={headerStyles.historyBtn} onPress={() => setShowHistory(true)} testID="lista-history-button">
+            <Feather name="clock" size={18} color="#FFFFFF" />
+          </Pressable>
+        </View>
+
+        <View style={headerStyles.searchWrap}>
           <Feather name="search" size={18} color={colors.onSurfaceTertiary} />
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Buscar lista..."
+            placeholder="Buscar listas..."
             placeholderTextColor={colors.onSurfaceTertiary}
-            style={[styles.searchInput, { color: colors.onSurface }]}
+            style={[headerStyles.searchInput, { color: colors.onSurface }]}
             testID="lista-search-input"
           />
-        </View>
-
-        <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.sm }}>
-          <View style={{ flex: 1 }}>
-            <Segmented
-              testID="lista-panel-tabs"
-              options={[
-                { key: "listas", label: "Listas" },
-                { key: "programadas", label: "Programadas" },
-              ]}
-              value={panel}
-              onChange={(k) => setPanel(k as Panel)}
-            />
-          </View>
-          <Pressable style={[styles.historyBtn, { backgroundColor: colors.surfaceTertiary }]} onPress={() => setShowHistory(true)} testID="lista-history-button">
-            <Feather name="clock" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
         </View>
       </View>
 
@@ -170,33 +272,21 @@ export default function ListaScreen() {
         contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.sm }}
         ListEmptyComponent={<EmptyState variant="box" title="Sin listas" subtitle="Crea una desde el botón + o dilo por voz." />}
         renderItem={({ item }: { item: ListRecord }) => (
-          <View style={[styles.card, { backgroundColor: colors.surfaceSecondary }]}>
-            <Pressable style={{ flex: 1 }} onPress={() => openList(item, false)} testID={`lista-open-${item.id}`}>
-              <Text style={[styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
-                {item.list_code ? `#${item.list_code} · ` : ""}
-                {item.title}
-              </Text>
-              {item.is_programmed && item.scheduled_at ? (
-                <Text style={[styles.cardMeta, { color: colors.onSurfaceTertiary }]}>
-                  {formatLocalDate(item.scheduled_at)} {formatLocalTime(item.scheduled_at)}
-                </Text>
-              ) : null}
-            </Pressable>
-            <Pressable onPress={() => onPlay(item)} hitSlop={8} testID={`lista-play-${item.id}`}>
-              <Feather name="play-circle" size={22} color={item.status === "in_progress" ? colors.success : colors.brand} />
-            </Pressable>
-            <Pressable onPress={() => openList(item, true)} hitSlop={8} testID={`lista-edit-${item.id}`}>
-              <Feather name="edit-2" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-            <Pressable onPress={() => deleteList(item.id)} hitSlop={8} testID={`lista-delete-${item.id}`}>
-              <Feather name="trash-2" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          </View>
+          <ListaCard
+            item={item}
+            entries={listEntries.filter((e) => e.list_id === item.id)}
+            onOpen={() => openList(item, false)}
+            onPlay={() => onPlay(item)}
+            onEdit={() => openList(item, true)}
+            onDelete={() => deleteList(item.id)}
+          />
         )}
       />
 
-      <Pressable style={[styles.fab, { backgroundColor: colors.brand }]} onPress={() => setShowNew(true)} testID="lista-fab">
-        <Feather name="plus" size={26} color={colors.onBrand} />
+      <Pressable style={styles.fab} onPress={() => setShowNew(true)} testID="lista-fab">
+        <LinearGradient colors={NETO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabGradient}>
+          <Feather name="plus" size={26} color="#FFFFFF" />
+        </LinearGradient>
       </Pressable>
 
       <Modal visible={showNew} transparent animationType="fade" onRequestClose={() => setShowNew(false)}>
@@ -405,14 +495,25 @@ export default function ListaScreen() {
 }
 
 const styles = StyleSheet.create({
-  searchWrap: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md, height: 48 },
-  historyBtn: { width: 44, height: 44, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center" },
-  searchInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
   label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
   card: { flexDirection: "row", alignItems: "center", gap: SPACING.md, padding: SPACING.md, borderRadius: RADIUS.md },
   cardTitle: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
   cardMeta: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, marginTop: 2 },
-  fab: { position: "absolute", right: SPACING.lg, bottom: SPACING.xl, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", elevation: 6, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  fab: {
+    position: "absolute",
+    right: SPACING.lg,
+    bottom: SPACING.xl,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: "hidden",
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  fabGradient: { flex: 1, alignItems: "center", justifyContent: "center" },
   backdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.5)", alignItems: "center", justifyContent: "center", padding: SPACING.xl },
   newCard: { width: "100%", maxWidth: 380, maxHeight: "85%", borderRadius: RADIUS.lg, padding: SPACING.xl },
   reminderToggle: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
@@ -422,4 +523,43 @@ const styles = StyleSheet.create({
   addItemInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
   addItemBtn: { width: 36, height: 36, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
   draftItemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.sm, borderRadius: RADIUS.md },
+});
+
+const headerStyles = StyleSheet.create({
+  wrap: { paddingHorizontal: SPACING.lg, paddingBottom: SPACING.lg, gap: SPACING.md, borderBottomLeftRadius: RADIUS.xl, borderBottomRightRadius: RADIUS.xl },
+  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  title: { flex: 1, textAlign: "center", fontFamily: FONTS.black, fontSize: FONT_SIZE.xl, color: "#FFFFFF" },
+  rightGroup: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
+  iconBtn: { width: 42, height: 42, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
+  filterRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
+  segmentTrack: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: RADIUS.pill, padding: 4 },
+  segmentItem: { flex: 1, paddingVertical: SPACING.sm, borderRadius: RADIUS.pill, alignItems: "center" },
+  segmentItemActive: { backgroundColor: "#FFFFFF" },
+  segmentText: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm, color: "rgba(255,255,255,0.75)" },
+  historyBtn: { width: 44, height: 44, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.15)" },
+  searchWrap: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, height: 48, backgroundColor: "#FFFFFF" },
+  searchInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
+});
+
+const cardStyles = StyleSheet.create({
+  header: {
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xl,
+  },
+  headerCode: { fontFamily: FONTS.black, fontSize: FONT_SIZE.sm, color: "#FFFFFF" },
+  body: {
+    borderRadius: RADIUS.lg,
+    marginTop: -SPACING.lg,
+    padding: SPACING.md,
+    gap: SPACING.sm,
+  },
+  title: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg },
+  meta: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, marginTop: -4 },
+  row: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
+  playBtn: { width: 36, height: 36, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
+  progressTrack: { flex: 1, height: 8, borderRadius: RADIUS.pill, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: RADIUS.pill },
+  actionBtn: { width: 32, height: 32, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
 });
