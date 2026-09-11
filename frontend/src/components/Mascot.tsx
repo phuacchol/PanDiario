@@ -13,6 +13,8 @@ const SOURCES = {
   // Estado vacío unificado de Lista/Ingreso/Gasto/Nota: la mascota con gorro
   // de dormir y pijama de estrellas, misma imagen que ya usa Bienvenida.
   bienvenido: require("@/assets/images/pandiario/pan-bienvenido.png"),
+  // Cabecera de Ajustes: la mascota ajustando un engranaje con llave inglesa.
+  ajuste: require("@/assets/images/pandiario/pan-ajuste.png"),
 };
 
 export function BrandLogo({ width = 220 }: { width?: number }) {

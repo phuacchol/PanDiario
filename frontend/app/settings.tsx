@@ -195,7 +195,7 @@ export default function Settings() {
 
       <ScrollView contentContainerStyle={{ padding: SPACING.lg, paddingBottom: insets.bottom + SPACING.xl, gap: SPACING.lg }}>
         <View style={{ alignItems: "center", gap: SPACING.xs }}>
-          <Mascot variant="happy" size={110} />
+          <Mascot variant="ajuste" size={110} />
           <Text style={[styles.name, { color: colors.onSurface }]}>{user?.name}</Text>
           <Text style={[styles.email, { color: colors.onSurfaceTertiary }]}>{user?.email}</Text>
         </View>
