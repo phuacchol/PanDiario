@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader";
 import { EmptyState } from "@/src/components/Mascot";
 import { Button, Field } from "@/src/components/ui";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
@@ -87,20 +86,7 @@ function ListaCard({
 
 export default function ListaScreen() {
   const { colors } = useTheme();
-  const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { lists, listEntries, addList, deleteList, toggleListPlay, addListEntry, toggleListEntry, deleteListEntry, completeList, refresh } = useData();
-
-  const [refreshing, setRefreshing] = useState(false);
-  const onRefreshPress = async () => {
-    if (refreshing) return;
-    setRefreshing(true);
-    try {
-      await refresh();
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  const { lists, listEntries, addList, deleteList, toggleListPlay, addListEntry, toggleListEntry, deleteListEntry, completeList } = useData();
 
   const [panel, setPanel] = useState<Panel>("listas");
   const [search, setSearch] = useState("");
@@ -213,24 +199,7 @@ export default function ListaScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <View style={[headerStyles.wrap, { backgroundColor: colors.heroBg, paddingTop: insets.top + SPACING.sm }]}>
-        <View style={headerStyles.topRow}>
-          <Pressable onPress={() => router.navigate("/(tabs)")} style={headerStyles.iconBtn} testID="lista-home-button">
-            <Feather name="home" size={20} color={colors.heroBg} />
-          </Pressable>
-          <Text style={headerStyles.title} numberOfLines={1}>
-            Listas
-          </Text>
-          <View style={headerStyles.rightGroup}>
-            <Pressable onPress={onRefreshPress} disabled={refreshing} style={headerStyles.iconBtn} testID="lista-refresh-button">
-              {refreshing ? <ActivityIndicator size="small" color={colors.heroBg} /> : <Feather name="refresh-cw" size={20} color={colors.heroBg} />}
-            </Pressable>
-            <Pressable onPress={() => router.push("/settings")} style={headerStyles.iconBtn} testID="lista-settings-button">
-              <Feather name="settings" size={20} color={colors.heroBg} />
-            </Pressable>
-          </View>
-        </View>
-
+      <DarkHeader title="Listas" testIDPrefix="lista">
         <View style={headerStyles.filterRow}>
           <View style={headerStyles.segmentTrack}>
             <Pressable
@@ -253,18 +222,18 @@ export default function ListaScreen() {
           </Pressable>
         </View>
 
-        <View style={headerStyles.searchWrap}>
+        <View style={darkHeaderSearchStyles.wrap}>
           <Feather name="search" size={18} color={colors.onSurfaceTertiary} />
           <TextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Buscar listas..."
             placeholderTextColor={colors.onSurfaceTertiary}
-            style={[headerStyles.searchInput, { color: colors.onSurface }]}
+            style={[darkHeaderSearchStyles.input, { color: colors.onSurface }]}
             testID="lista-search-input"
           />
         </View>
-      </View>
+      </DarkHeader>
 
       <FlatList
         data={filtered}
@@ -526,19 +495,12 @@ const styles = StyleSheet.create({
 });
 
 const headerStyles = StyleSheet.create({
-  wrap: { paddingHorizontal: SPACING.lg, paddingBottom: SPACING.lg, gap: SPACING.md, borderBottomLeftRadius: RADIUS.xl, borderBottomRightRadius: RADIUS.xl },
-  topRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { flex: 1, textAlign: "center", fontFamily: FONTS.black, fontSize: FONT_SIZE.xl, color: "#FFFFFF" },
-  rightGroup: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
-  iconBtn: { width: 42, height: 42, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
   filterRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
   segmentTrack: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: RADIUS.pill, padding: 4 },
   segmentItem: { flex: 1, paddingVertical: SPACING.sm, borderRadius: RADIUS.pill, alignItems: "center" },
   segmentItemActive: { backgroundColor: "#FFFFFF" },
   segmentText: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm, color: "rgba(255,255,255,0.75)" },
   historyBtn: { width: 44, height: 44, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.15)" },
-  searchWrap: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, height: 48, backgroundColor: "#FFFFFF" },
-  searchInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
 });
 
 const cardStyles = StyleSheet.create({

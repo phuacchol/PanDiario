@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput, Alert } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
-import { TopBar } from "@/src/components/TopBar";
+import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader";
 import { EmptyState } from "@/src/components/Mascot";
 import { Button, Field, Segmented, ChipRow, InputPrompt } from "@/src/components/ui";
 import { CategoryAutocomplete } from "@/src/components/CategoryAutocomplete";
@@ -97,21 +97,21 @@ export default function IngresoScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <TopBar title="Ingreso" />
-
-      <View style={{ paddingHorizontal: SPACING.lg, gap: SPACING.md }}>
-        <View style={[styles.searchWrap, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
+      <DarkHeader title="Ingreso" testIDPrefix="ingreso">
+        <View style={darkHeaderSearchStyles.wrap}>
           <Feather name="search" size={18} color={colors.onSurfaceTertiary} />
           <TextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Buscar por categoría o nota..."
             placeholderTextColor={colors.onSurfaceTertiary}
-            style={[styles.searchInput, { color: colors.onSurface }]}
+            style={[darkHeaderSearchStyles.input, { color: colors.onSurface }]}
             testID="ingreso-search-input"
           />
         </View>
+      </DarkHeader>
 
+      <View style={{ paddingHorizontal: SPACING.lg, gap: SPACING.md, paddingTop: SPACING.md }}>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <Pressable style={[styles.addCatChip, { backgroundColor: colors.brandTertiary }]} onPress={() => setShowNewCategory(true)} testID="ingreso-add-category">
             <Feather name="plus" size={14} color={colors.brand} />
@@ -198,8 +198,6 @@ export default function IngresoScreen() {
 }
 
 const styles = StyleSheet.create({
-  searchWrap: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md, height: 48 },
-  searchInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
   addCatChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: SPACING.md, height: 32, borderRadius: RADIUS.pill },
   label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
   fab: { position: "absolute", right: SPACING.lg, bottom: SPACING.xl, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", elevation: 6, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
