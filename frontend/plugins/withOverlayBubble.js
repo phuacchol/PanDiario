@@ -181,6 +181,43 @@ function withOverlayBubbleIcon(config) {
   ]);
 }
 
+// Ilustraciones flotantes de los paneles nativos Nuevo Ingreso/Gasto/Nota/
+// Lista (homologación con FloatingMascot de ModalForm.tsx en el lado
+// React): mismo patrón que withOverlayBubbleIcon -nombre de archivo fijo en
+// res/drawable/, resuelto en runtime vía resources.getIdentifier() porque
+// R.drawable no es estable entre builds de Expo-. Si algún asset todavía no
+// existe en el repo se omite en silencio (genericPanelMascotDrawable en
+// OverlayBubbleService ya tolera un resId de 0 sin mostrar imagen), nunca
+// rompe el build.
+const MODAL_MASCOTS = [
+  { file: "pan-ingreso.png", drawable: "pan_ingreso" },
+  { file: "pan-gasto.png", drawable: "pan_gasto" },
+  { file: "pan-lista.png", drawable: "pan_lista" },
+  { file: "pan-nota.png", drawable: "pan_nota" },
+];
+
+function withOverlayBubbleModalMascots(config) {
+  return withDangerousMod(config, [
+    "android",
+    async (config) => {
+      const projectRoot = config.modRequest.projectRoot;
+      const drawableDir = path.join(config.modRequest.platformProjectRoot, "app", "src", "main", "res", "drawable");
+      fs.mkdirSync(drawableDir, { recursive: true });
+
+      for (const { file, drawable } of MODAL_MASCOTS) {
+        const src = path.join(projectRoot, "assets", "images", "pandiario", file);
+        if (!fs.existsSync(src)) {
+          console.warn(`[withOverlayBubble] ${file} no existe todavía en assets/images/pandiario/; el panel nativo de ${drawable} quedará sin ilustración.`);
+          continue;
+        }
+        fs.copyFileSync(src, path.join(drawableDir, `${drawable}.png`));
+      }
+
+      return config;
+    },
+  ]);
+}
+
 // Copia el tema de diálogo flotante (Theme.PanDiario.FloatingDialog) a
 // res/values/. Es un recurso XML plano -sin __PACKAGE__ que sustituir-, así
 // que se copia tal cual, por fuera del filtro de archivos .kt.template de
@@ -204,6 +241,7 @@ module.exports = function withOverlayBubble(config) {
   config = withOverlayBubbleMainActivity(config);
   config = withOverlayBubbleNativeSources(config);
   config = withOverlayBubbleIcon(config);
+  config = withOverlayBubbleModalMascots(config);
   config = withOverlayBubbleFloatingTheme(config);
   return config;
 };

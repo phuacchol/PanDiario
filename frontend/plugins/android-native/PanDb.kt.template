@@ -252,6 +252,26 @@ object PanDb {
     }
   }
 
+  // Moneda activa: mismo criterio de usuario único por dispositivo que el
+  // resto de este archivo (sin filtrar por id). Refleja lo que
+  // AuthContext.updateUser() persiste en el lado React -antes ese método
+  // solo guardaba en memoria/AsyncStorage, nunca en esta fila; ver el fix
+  // de reactividad de moneda-, así que la burbuja y la app siempre leen el
+  // mismo valor.
+  fun getCurrency(context: Context): String {
+    val db = open(context) ?: return "PEN"
+    try {
+      db.rawQuery("SELECT currency FROM users LIMIT 1", null).use { c ->
+        if (c.moveToFirst()) return c.getString(0) ?: "PEN"
+      }
+      return "PEN"
+    } catch (_: Exception) {
+      return "PEN"
+    } finally {
+      db.close()
+    }
+  }
+
   // Aplica el efecto de una transacción sobre Cartera/Caja Chica/Ahorro
   // (con soporte Mixto) y sobre el cupo de Presupuesto si el origen es
   // 'vital'/'secundario' -replica exactamente applyTxEffect de

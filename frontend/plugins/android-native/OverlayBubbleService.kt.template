@@ -323,7 +323,13 @@ class OverlayBubbleService : Service() {
     val bubble = currentParams ?: return
     val panel = buildMenuPanelView()
 
-    val panelWidth = dp(230)
+    // Ancho compacto: antes 230dp dejaba un margen vacío visible a la
+    // derecha de opciones cortas como "Gasto"/"Notas". 196dp (dentro del
+    // rango 180-200dp pedido) se ajusta al contenido real sin dejar ese
+    // hueco, manteniendo el ancho fijo -más predecible para el cálculo de
+    // panelX/anchorBelow de abajo que un WRAP_CONTENT cuyo ancho final no
+    // se conoce hasta después de agregar la vista-.
+    val panelWidth = dp(196)
     val panelHeightEstimate = dp(300)
     val bubbleSize = dp(56)
     val screen = resources.displayMetrics
@@ -374,7 +380,7 @@ class OverlayBubbleService : Service() {
     val root = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
       background = GradientDrawable().apply {
-        cornerRadius = dp(18).toFloat()
+        cornerRadius = dp(20).toFloat()
         setColor(Color.WHITE)
       }
       clipToOutline = true
@@ -407,10 +413,10 @@ class OverlayBubbleService : Service() {
     val micBar = LinearLayout(this).apply {
       orientation = LinearLayout.HORIZONTAL
       gravity = Gravity.CENTER
-      setPadding(dp(14), dp(14), dp(14), dp(14))
+      setPadding(dp(16), dp(14), dp(16), dp(14))
       background = GradientDrawable().apply {
         setColor(Color.parseColor(COLOR_BRAND))
-        cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, dp(18).toFloat(), dp(18).toFloat(), dp(18).toFloat(), dp(18).toFloat())
+        cornerRadii = floatArrayOf(0f, 0f, 0f, 0f, dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat(), dp(20).toFloat())
       }
     }
     micBar.addView(TextView(this).apply {
@@ -450,7 +456,11 @@ class OverlayBubbleService : Service() {
     val row = LinearLayout(this).apply {
       orientation = LinearLayout.HORIZONTAL
       gravity = Gravity.CENTER_VERTICAL
-      setPadding(dp(14), dp(10), dp(14), dp(10))
+      setPadding(dp(16), dp(10), dp(16), dp(10))
+      // Ancho completo del panel -no solo lo que el icono+texto necesiten-
+      // para que el área táctil de la fila cubra todo el ancho compacto,
+      // sin importar qué tan corta sea la etiqueta.
+      layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
       isClickable = true
       isFocusable = true
       setOnClickListener { onClick() }
@@ -460,7 +470,10 @@ class OverlayBubbleService : Service() {
       textSize = 18f
       setPadding(0, 0, dp(12), 0)
     })
-    val textCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    val textCol = LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+    }
     textCol.addView(TextView(this).apply {
       text = title
       setTextColor(Color.parseColor(COLOR_TEXT))
@@ -471,6 +484,7 @@ class OverlayBubbleService : Service() {
         text = subtitle
         setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
         textSize = 11f
+        ellipsize = android.text.TextUtils.TruncateAt.END
         maxLines = 1
       })
     }
@@ -520,7 +534,10 @@ class OverlayBubbleService : Service() {
     genMethod = "efectivo"
     genCashAmount = ""
     genOrigin = "vital"
-    genCategory = ""
+    // Precargado igual que CategoryAutocomplete en el lado React: el
+    // usuario ve "Otros" ya escrito, no solo como hint, y puede
+    // sobreescribirlo libremente.
+    genCategory = "Otros"
     genNote = ""
     genSubject = ""
     genText = ""
@@ -557,6 +574,30 @@ class OverlayBubbleService : Service() {
     "gasto" -> "NUEVO GASTO"
     "nota" -> "NUEVA NOTA"
     else -> "NUEVA LISTA"
+  }
+
+  // Mismo texto que ModalFormButton en cada modal React (gasto.tsx,
+  // ingreso.tsx, nota.tsx, lista.tsx) para que el panel nativo y el de la
+  // app digan exactamente lo mismo. El "✓ " sigue el mismo lenguaje visual
+  // -check blanco + texto- del botón ancho tipo cápsula de allá.
+  private fun genericPanelConfirmLabel(kind: String): String {
+    if (genSubmitting) return "Guardando..."
+    return when (kind) {
+      "ingreso" -> "✓ Registrar Ingreso"
+      "gasto" -> "✓ Registrar Gasto"
+      "nota" -> "✓ Guardar Nota"
+      else -> "✓ Crear Lista"
+    }
+  }
+
+  // Nombre del drawable copiado a res/drawable/ por
+  // withOverlayBubbleModalMascots() en withOverlayBubble.js -mismo patrón
+  // que pan_burbuja para el ícono de la burbuja colapsada-.
+  private fun genericPanelMascotDrawable(kind: String): String = when (kind) {
+    "ingreso" -> "pan_ingreso"
+    "gasto" -> "pan_gasto"
+    "nota" -> "pan_nota"
+    else -> "pan_lista"
   }
 
   private fun buildGenericPanelView(kind: String): View {
@@ -604,22 +645,47 @@ class OverlayBubbleService : Service() {
     root.addView(scroll)
 
     root.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12)) })
-    val confirmLabel = if (genSubmitting) "Guardando..." else if (kind == "lista_new") "Crear" else "Guardar"
-    root.addView(actionButton(confirmLabel, COLOR_BRAND, enabled = !genSubmitting) { confirmGenericPanel(kind) })
+    root.addView(actionButton(genericPanelConfirmLabel(kind), COLOR_BRAND, enabled = !genSubmitting) { confirmGenericPanel(kind) })
 
-    return root
+    // Homologación con FloatingMascot (ModalForm.tsx del lado React):
+    // ilustración centrada sobre el borde superior del panel, mitad afuera
+    // mitad adentro. Un FrameLayout envolvente con clipChildren=false -en
+    // vez de traslación/margen negativo sobre el propio `root`- evita
+    // cualquier recorte por el borderRadius de la tarjeta blanca: el
+    // ImageView vive en un View hermano de `root`, nunca dentro de su
+    // jerarquía recortada.
+    val mascotSize = dp(84)
+    val mascotOverlap = mascotSize / 2
+    val wrapper = android.widget.FrameLayout(this).apply { clipChildren = false }
+    wrapper.addView(
+      root,
+      android.widget.FrameLayout.LayoutParams(
+        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+        android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+      ).apply {
+        gravity = Gravity.TOP
+        topMargin = mascotOverlap
+      }
+    )
+    val mascotResId = resources.getIdentifier(genericPanelMascotDrawable(kind), "drawable", packageName)
+    if (mascotResId != 0) {
+      wrapper.addView(
+        ImageView(this).apply {
+          setImageResource(mascotResId)
+          scaleType = ImageView.ScaleType.FIT_CENTER
+        },
+        android.widget.FrameLayout.LayoutParams(mascotSize, mascotSize).apply {
+          gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        }
+      )
+    }
+
+    return wrapper
   }
 
   private fun buildIngresoFields(body: LinearLayout) {
     body.addView(fieldLabel("Monto"))
-    body.addView(EditText(this).apply {
-      hint = "0.00"
-      setText(genAmount)
-      inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
-      setPadding(dp(10), dp(8), dp(10), dp(8))
-      addTextChangedListener(simpleWatcher { genAmount = it })
-    })
+    body.addView(amountField(genAmount) { genAmount = it })
     body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
     body.addView(segmentedRow(listOf("efectivo" to "Efectivo", "transferencia" to "Transferencia", "mixto" to "Mixto"), genMethod) {
       genMethod = it
@@ -627,19 +693,12 @@ class OverlayBubbleService : Service() {
     })
     if (genMethod == "mixto") {
       body.addView(fieldLabel("Efectivo recibido"))
-      body.addView(EditText(this).apply {
-        hint = "0.00"
-        setText(genCashAmount)
-        inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-        setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
-        setPadding(dp(10), dp(8), dp(10), dp(8))
-        addTextChangedListener(simpleWatcher { genCashAmount = it })
-      })
+      body.addView(amountField(genCashAmount) { genCashAmount = it })
       val amt = genAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
       val cash = genCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
       val digital = if (amt - cash > 0) amt - cash else 0.0
       body.addView(TextView(this).apply {
-        text = "Digital (calculado): S/ " + String.format(Locale.US, "%.2f", digital)
+        text = "Digital (calculado): " + activeCurrencySymbol() + " " + String.format(Locale.US, "%.2f", digital)
         setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
         textSize = 12f
         setPadding(0, dp(4), 0, 0)
@@ -648,7 +707,7 @@ class OverlayBubbleService : Service() {
     body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
     body.addView(fieldLabel("Categoría"))
     body.addView(EditText(this).apply {
-      hint = "Ej. Sueldo"
+      hint = "Otros"
       setText(genCategory)
       setSingleLine(true)
       setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
@@ -668,14 +727,7 @@ class OverlayBubbleService : Service() {
 
   private fun buildGastoFields(body: LinearLayout) {
     body.addView(fieldLabel("Monto"))
-    body.addView(EditText(this).apply {
-      hint = "0.00"
-      setText(genAmount)
-      inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
-      setPadding(dp(10), dp(8), dp(10), dp(8))
-      addTextChangedListener(simpleWatcher { genAmount = it })
-    })
+    body.addView(amountField(genAmount) { genAmount = it })
     body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
     body.addView(segmentedRow(listOf("efectivo" to "Efectivo", "transferencia" to "Transferencia", "mixto" to "Mixto"), genMethod) {
       genMethod = it
@@ -683,19 +735,12 @@ class OverlayBubbleService : Service() {
     })
     if (genMethod == "mixto") {
       body.addView(fieldLabel("Efectivo pagado"))
-      body.addView(EditText(this).apply {
-        hint = "0.00"
-        setText(genCashAmount)
-        inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-        setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
-        setPadding(dp(10), dp(8), dp(10), dp(8))
-        addTextChangedListener(simpleWatcher { genCashAmount = it })
-      })
+      body.addView(amountField(genCashAmount) { genCashAmount = it })
       val amt = genAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
       val cash = genCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
       val digital = if (amt - cash > 0) amt - cash else 0.0
       body.addView(TextView(this).apply {
-        text = "Digital (calculado): S/ " + String.format(Locale.US, "%.2f", digital)
+        text = "Digital (calculado): " + activeCurrencySymbol() + " " + String.format(Locale.US, "%.2f", digital)
         setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
         textSize = 12f
         setPadding(0, dp(4), 0, 0)
@@ -710,7 +755,7 @@ class OverlayBubbleService : Service() {
     body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
     body.addView(fieldLabel("Categoría"))
     body.addView(EditText(this).apply {
-      hint = "Ej. Mercado"
+      hint = "Otros"
       setText(genCategory)
       setSingleLine(true)
       setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
@@ -1141,14 +1186,7 @@ class OverlayBubbleService : Service() {
 
     if (execRegisterExpense) {
       col.addView(fieldLabel("Monto total gastado"))
-      col.addView(EditText(this).apply {
-        hint = "0.00"
-        setText(execAmount)
-        inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-        setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
-        setPadding(dp(10), dp(8), dp(10), dp(8))
-        addTextChangedListener(simpleWatcher { execAmount = it })
-      })
+      col.addView(amountField(execAmount) { execAmount = it })
 
       col.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)) })
       col.addView(segmentedRow(listOf("efectivo" to "Efectivo", "transferencia" to "Transferencia", "mixto" to "Mixto"), execMethod) {
@@ -1158,19 +1196,12 @@ class OverlayBubbleService : Service() {
 
       if (execMethod == "mixto") {
         col.addView(fieldLabel("Efectivo pagado"))
-        col.addView(EditText(this).apply {
-          hint = "0.00"
-          setText(execCashAmount)
-          inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
-          setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
-          setPadding(dp(10), dp(8), dp(10), dp(8))
-          addTextChangedListener(simpleWatcher { execCashAmount = it })
-        })
+        col.addView(amountField(execCashAmount) { execCashAmount = it })
         val amt = execAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
         val cash = execCashAmount.replace(",", ".").toDoubleOrNull() ?: 0.0
         val digital = if (amt - cash > 0) amt - cash else 0.0
         col.addView(TextView(this).apply {
-          text = "Digital (calculado): S/ " + String.format(Locale.US, "%.2f", digital)
+          text = "Digital (calculado): " + activeCurrencySymbol() + " " + String.format(Locale.US, "%.2f", digital)
           setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
           textSize = 12f
           setPadding(0, dp(4), 0, 0)
@@ -1263,6 +1294,79 @@ class OverlayBubbleService : Service() {
     }
   }
 
+  // Mismo mapeo código->símbolo que currencySymbol() en
+  // frontend/src/utils/format.ts (CURRENCIES + WORLD_CURRENCIES): una sola
+  // fuente de verdad conceptual, duplicada aquí porque este código nativo
+  // no puede importar TypeScript.
+  private fun currencySymbolFor(code: String): String = when (code) {
+    "PEN" -> "S/"
+    "USD" -> "$"
+    "EUR" -> "€"
+    "ARS" -> "$"
+    "COP" -> "$"
+    "MXN" -> "$"
+    "CLP" -> "$"
+    "BRL" -> "R$"
+    "BOB" -> "Bs"
+    "UYU" -> "$U"
+    "PYG" -> "₲"
+    "VES" -> "Bs"
+    "GTQ" -> "Q"
+    "CRC" -> "₡"
+    "DOP" -> "RD$"
+    "GBP" -> "£"
+    "JPY" -> "¥"
+    "CNY" -> "¥"
+    "CAD" -> "C$"
+    "AUD" -> "A$"
+    "CHF" -> "Fr"
+    "INR" -> "₹"
+    "KRW" -> "₩"
+    "RUB" -> "₽"
+    "ZAR" -> "R"
+    else -> code
+  }
+
+  // Moneda activa del usuario -misma fila `users` que ya persiste
+  // AuthContext.updateUser() en el lado React (ver fix de reactividad de
+  // moneda)-, con "S/" como respaldo si la lectura falla o la app todavía
+  // no tiene sesión.
+  private fun activeCurrencySymbol(): String {
+    val code = try { PanDb.getCurrency(this) } catch (_: Exception) { "PEN" }
+    return currencySymbolFor(code)
+  }
+
+  // Campo de Monto homologado con ModalFormField (prefixText) del lado
+  // React: el símbolo de moneda real en vez de un ícono $ genérico fijo.
+  private fun amountField(value: String, onChange: (String) -> Unit): View {
+    val row = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER_VERTICAL
+      background = GradientDrawable().apply {
+        cornerRadius = dp(10).toFloat()
+        setColor(Color.parseColor(COLOR_SURFACE_ALT))
+      }
+      setPadding(dp(10), 0, dp(10), 0)
+    }
+    row.addView(TextView(this).apply {
+      text = activeCurrencySymbol()
+      setTextColor(Color.parseColor(COLOR_TEXT_MUTED))
+      textSize = 13f
+      setTypeface(typeface, android.graphics.Typeface.BOLD)
+      setPadding(0, 0, dp(6), 0)
+    })
+    row.addView(EditText(this).apply {
+      hint = "0.00"
+      setText(value)
+      inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+      background = null
+      setPadding(0, dp(8), 0, dp(8))
+      layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+      addTextChangedListener(simpleWatcher(onChange))
+    })
+    return row
+  }
+
   private fun segmentedRow(options: List<Pair<String, String>>, value: String, onChange: (String) -> Unit): View {
     val row = LinearLayout(this).apply {
       orientation = LinearLayout.HORIZONTAL
@@ -1346,9 +1450,9 @@ class OverlayBubbleService : Service() {
       gravity = Gravity.CENTER
       alpha = if (enabled) 1f else 0.6f
       isClickable = enabled
-      setPadding(dp(12), dp(12), dp(12), dp(12))
+      setPadding(dp(12), dp(14), dp(12), dp(14))
       background = GradientDrawable().apply {
-        cornerRadius = dp(12).toFloat()
+        cornerRadius = dp(20).toFloat()
         setColor(Color.parseColor(colorHex))
       }
       setOnClickListener { if (enabled) onClick() }
