@@ -11,21 +11,17 @@ import { TimePickerModal } from "@/src/components/TimePickerModal";
 import { CompraOverlayModal } from "@/src/components/home/CompraOverlayModal";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type ListRecord, type ListEntry } from "@/src/context/DataContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE, NETO_GRADIENT } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, NETO_GRADIENT, paletteColor } from "@/src/theme/theme";
 import { formatLocalDate, formatLocalTime } from "@/src/utils/format";
 
 type Panel = "listas" | "programadas";
 type DraftItem = { id: string; text: string; done: boolean };
 
 // Paleta rotativa para la franja de color de cada tarjeta de lista: el color
-// se deriva de forma estable a partir del id de la lista, para que cada una
-// mantenga siempre el mismo color entre refrescos y reordenamientos.
+// se deriva de forma estable a partir del id de la lista (ver paletteColor
+// en theme.ts), para que cada una mantenga siempre el mismo color entre
+// refrescos y reordenamientos.
 const LISTA_ACCENT_PALETTE = ["#4A90E2", "#2ECC71", "#9B59B6", "#E67E22", "#1FB6B6", "#E84393"];
-function listAccentColor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return LISTA_ACCENT_PALETTE[hash % LISTA_ACCENT_PALETTE.length];
-}
 
 function ListaCard({
   item,
@@ -43,7 +39,7 @@ function ListaCard({
   onDelete: () => void;
 }) {
   const { colors } = useTheme();
-  const accent = listAccentColor(item.id);
+  const accent = paletteColor(item.id, LISTA_ACCENT_PALETTE);
   const total = entries.length;
   const done = entries.filter((e) => e.done).length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;

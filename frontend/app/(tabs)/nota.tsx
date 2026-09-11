@@ -2,18 +2,85 @@ import { useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
-import { TopBar } from "@/src/components/TopBar";
+import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader";
 import { EmptyState } from "@/src/components/Mascot";
 import { Button, Field, ChipRow, Segmented } from "@/src/components/ui";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
 import { TimePickerModal } from "@/src/components/TimePickerModal";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type Note } from "@/src/context/DataContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, paletteColor } from "@/src/theme/theme";
 import { formatLocalDate, formatLocalTime } from "@/src/utils/format";
 import { LEAD_TIME_OPTIONS } from "@/src/constants";
 
 type Panel = "notas" | "recordatorios";
+
+// Paleta rotativa para la franja de color de cada tarjeta de nota: el color
+// se deriva de forma estable a partir del id de la nota (ver paletteColor en
+// theme.ts), para que cada una mantenga siempre el mismo color.
+const NOTA_ACCENT_PALETTE = ["#4A90E2", "#2ECC71", "#A855F7", "#E67E22", "#1FB6B6", "#E84393"];
+
+function NotaCard({
+  item,
+  showPin,
+  overdue,
+  onToggleDone,
+  onOpen,
+  onEdit,
+  onDelete,
+  onTogglePin,
+}: {
+  item: Note;
+  showPin: boolean;
+  overdue: boolean;
+  onToggleDone: () => void;
+  onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onTogglePin: () => void;
+}) {
+  const { colors } = useTheme();
+  const accent = paletteColor(item.id, NOTA_ACCENT_PALETTE);
+
+  return (
+    <View style={{ opacity: overdue ? 0.6 : 1 }}>
+      <View style={[cardStyles.header, { backgroundColor: accent }]}>
+        <Text style={cardStyles.headerSubject} numberOfLines={1}>
+          {item.subject?.trim() || "Nota"}
+        </Text>
+        <Pressable onPress={onToggleDone} hitSlop={8} style={cardStyles.checkBadge} testID={`nota-toggle-${item.id}`}>
+          <Feather name="check" size={13} color="#FFFFFF" />
+        </Pressable>
+      </View>
+      <Pressable style={[cardStyles.body, { backgroundColor: colors.surfaceSecondary }]} onPress={onOpen} testID={`nota-open-${item.id}`}>
+        <Text style={[cardStyles.text, { color: colors.onSurface }]}>{item.text}</Text>
+        {item.is_reminder && item.remind_at ? (
+          <Text style={[cardStyles.meta, { color: overdue ? colors.error : colors.brand }]}>
+            <Feather name="bell" size={11} /> {formatLocalDate(item.remind_at)} · {formatLocalTime(item.remind_at)}
+          </Text>
+        ) : null}
+        <View style={cardStyles.actions}>
+          {showPin ? (
+            <Pressable
+              style={[cardStyles.actionBtn, { backgroundColor: item.pinned ? colors.warning : colors.onSurfaceTertiary }]}
+              onPress={onTogglePin}
+              hitSlop={8}
+              testID={`nota-pin-${item.id}`}
+            >
+              <Feather name="bookmark" size={14} color="#FFFFFF" />
+            </Pressable>
+          ) : null}
+          <Pressable style={[cardStyles.actionBtn, { backgroundColor: colors.brand }]} onPress={onEdit} hitSlop={8} testID={`nota-edit-${item.id}`}>
+            <Feather name="edit-2" size={14} color="#FFFFFF" />
+          </Pressable>
+          <Pressable style={[cardStyles.actionBtn, { backgroundColor: colors.error }]} onPress={onDelete} hitSlop={8} testID={`nota-delete-${item.id}`}>
+            <Feather name="trash-2" size={14} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
 
 export default function NotaScreen() {
   const { colors } = useTheme();
@@ -114,38 +181,41 @@ export default function NotaScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <TopBar title="Nota" />
+      <DarkHeader title="Nota" testIDPrefix="nota">
+        <View style={headerStyles.filterRow}>
+          <View style={headerStyles.segmentTrack}>
+            <Pressable
+              style={[headerStyles.segmentItem, panel === "notas" && headerStyles.segmentItemActive]}
+              onPress={() => setPanel("notas")}
+              testID="segment-notas"
+            >
+              <Text style={[headerStyles.segmentText, panel === "notas" && { color: colors.heroBg }]}>Notas</Text>
+            </Pressable>
+            <Pressable
+              style={[headerStyles.segmentItem, panel === "recordatorios" && headerStyles.segmentItemActive]}
+              onPress={() => setPanel("recordatorios")}
+              testID="segment-recordatorios"
+            >
+              <Text style={[headerStyles.segmentText, panel === "recordatorios" && { color: colors.heroBg }]}>Recordatorios</Text>
+            </Pressable>
+          </View>
+          <Pressable style={headerStyles.historyBtn} onPress={() => setShowHistory(true)} testID="nota-history-button">
+            <Feather name="clock" size={18} color="#FFFFFF" />
+          </Pressable>
+        </View>
 
-      <View style={{ paddingHorizontal: SPACING.lg, gap: SPACING.md }}>
-        <View style={[styles.searchWrap, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
+        <View style={darkHeaderSearchStyles.wrap}>
           <Feather name="search" size={18} color={colors.onSurfaceTertiary} />
           <TextInput
             value={search}
             onChangeText={setSearch}
             placeholder="Buscar por asunto..."
             placeholderTextColor={colors.onSurfaceTertiary}
-            style={[styles.searchInput, { color: colors.onSurface }]}
+            style={[darkHeaderSearchStyles.input, { color: colors.onSurface }]}
             testID="nota-search-input"
           />
         </View>
-
-        <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.sm }}>
-          <View style={{ flex: 1 }}>
-            <Segmented
-              testID="nota-panel-tabs"
-              options={[
-                { key: "notas", label: "Notas" },
-                { key: "recordatorios", label: "Recordatorios" },
-              ]}
-              value={panel}
-              onChange={(k) => setPanel(k as Panel)}
-            />
-          </View>
-          <Pressable style={[styles.historyBtn, { backgroundColor: colors.surfaceTertiary }]} onPress={() => setShowHistory(true)} testID="nota-history-button">
-            <Feather name="clock" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
-        </View>
-      </View>
+      </DarkHeader>
 
       <FlatList
         data={panel === "notas" ? plainNotes : reminders}
@@ -161,33 +231,16 @@ export default function NotaScreen() {
         renderItem={({ item }) => {
           const overdue = item.is_reminder && !!item.remind_at && new Date(item.remind_at).getTime() < Date.now();
           return (
-            <View style={[styles.noteCard, { backgroundColor: colors.surfaceSecondary, opacity: overdue ? 0.6 : 1 }]}>
-              <Pressable onPress={() => toggleNoteDone(item.id)} hitSlop={8} testID={`nota-toggle-${item.id}`}>
-                <Feather name="circle" size={20} color={colors.onSurfaceTertiary} />
-              </Pressable>
-              <Pressable style={{ flex: 1 }} onPress={() => openEditEditor(item)} testID={`nota-open-${item.id}`}>
-                {item.subject ? <Text style={[styles.noteSubject, { color: colors.onSurface }]}>{item.subject}</Text> : null}
-                <Text style={[styles.noteText, { color: item.subject ? colors.onSurfaceTertiary : colors.onSurface }]} numberOfLines={2}>
-                  {item.text}
-                </Text>
-                {item.is_reminder && item.remind_at ? (
-                  <Text style={[styles.noteMeta, { color: overdue ? colors.error : colors.brand }]}>
-                    <Feather name="bell" size={11} /> {formatLocalDate(item.remind_at)} · {formatLocalTime(item.remind_at)}
-                  </Text>
-                ) : null}
-              </Pressable>
-              {panel === "notas" ? (
-                <Pressable onPress={() => toggleNotePin(item.id)} hitSlop={8} testID={`nota-pin-${item.id}`}>
-                  <Feather name="bookmark" size={18} color={item.pinned ? colors.warning : colors.onSurfaceTertiary} />
-                </Pressable>
-              ) : null}
-              <Pressable onPress={() => openEditEditor(item)} hitSlop={8} testID={`nota-edit-${item.id}`}>
-                <Feather name="edit-2" size={17} color={colors.onSurfaceTertiary} />
-              </Pressable>
-              <Pressable onPress={() => deleteNote(item.id)} hitSlop={8} testID={`nota-delete-${item.id}`}>
-                <Feather name="trash-2" size={18} color={colors.onSurfaceTertiary} />
-              </Pressable>
-            </View>
+            <NotaCard
+              item={item}
+              showPin={panel === "notas"}
+              overdue={overdue}
+              onToggleDone={() => toggleNoteDone(item.id)}
+              onOpen={() => openEditEditor(item)}
+              onEdit={() => openEditEditor(item)}
+              onDelete={() => deleteNote(item.id)}
+              onTogglePin={() => toggleNotePin(item.id)}
+            />
           );
         }}
       />
@@ -326,9 +379,6 @@ export default function NotaScreen() {
 }
 
 const styles = StyleSheet.create({
-  searchWrap: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md, height: 48 },
-  historyBtn: { width: 44, height: 44, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center" },
-  searchInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
   label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
   noteCard: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADIUS.md },
   noteSubject: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
@@ -340,4 +390,24 @@ const styles = StyleSheet.create({
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: SPACING.sm },
   sheetTitle: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg },
   dateBtn: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, height: 48, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md },
+});
+
+const headerStyles = StyleSheet.create({
+  filterRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
+  segmentTrack: { flex: 1, flexDirection: "row", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: RADIUS.pill, padding: 4 },
+  segmentItem: { flex: 1, paddingVertical: SPACING.sm, borderRadius: RADIUS.pill, alignItems: "center" },
+  segmentItemActive: { backgroundColor: "#FFFFFF" },
+  segmentText: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm, color: "rgba(255,255,255,0.75)" },
+  historyBtn: { width: 44, height: 44, borderRadius: RADIUS.md, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.15)" },
+});
+
+const cardStyles = StyleSheet.create({
+  header: { borderRadius: RADIUS.lg, paddingHorizontal: SPACING.md, paddingTop: SPACING.sm, paddingBottom: SPACING.xl, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerSubject: { flex: 1, fontFamily: FONTS.black, fontSize: FONT_SIZE.base, color: "#FFFFFF" },
+  checkBadge: { width: 22, height: 22, borderRadius: RADIUS.pill, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.8)", alignItems: "center", justifyContent: "center" },
+  body: { borderRadius: RADIUS.lg, marginTop: -SPACING.lg, padding: SPACING.md, gap: SPACING.sm },
+  text: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base },
+  meta: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs },
+  actions: { flexDirection: "row", justifyContent: "flex-end", gap: SPACING.sm },
+  actionBtn: { width: 32, height: 32, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
 });

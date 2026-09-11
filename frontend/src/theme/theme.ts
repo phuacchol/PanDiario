@@ -98,6 +98,16 @@ export const ORIGIN_HEADER_COLORS = {
   vital: BUDGET_VITAL_COLOR,
   secundario: BUDGET_SECO_COLOR,
 } as const;
+
+// Deriva un color estable de una paleta a partir de un id (mismo id -> mismo
+// color siempre, entre refrescos y reordenamientos). Usado por las franjas
+// de color decorativas de Lista y Nota, cada una con su propia paleta.
+export function paletteColor(id: string, palette: readonly string[]): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return palette[hash % palette.length];
+}
+
 export const FONTS = {
   regular: "Nunito",
   medium: "Nunito-SemiBold",
