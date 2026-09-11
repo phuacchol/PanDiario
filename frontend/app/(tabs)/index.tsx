@@ -148,15 +148,15 @@ export default function Home() {
         {/* Tarjeta superior de Cartera + Ahorrar/Pagaron */}
         <View style={styles.walletRow}>
           <View style={[styles.walletCard, { backgroundColor: colors.heroBg }]}>
-            <Text style={styles.walletAmount}>{formatMoney(carteraTotal, "PEN")}</Text>
+            <Text style={styles.walletAmount}>{formatMoney(carteraTotal, user?.currency)}</Text>
             <View style={styles.walletSplitRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.walletSplitLabel}>EFECTIVO:</Text>
-                <Text style={styles.walletSplitValue}>S/ {wallet.carteraEfectivo.toFixed(0)}</Text>
+                <Text style={styles.walletSplitValue}>{formatMoney(wallet.carteraEfectivo, user?.currency)}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.walletSplitLabel}>DIGITAL:</Text>
-                <Text style={styles.walletSplitValue}>S/ {wallet.carteraDigital.toFixed(0)}</Text>
+                <Text style={styles.walletSplitValue}>{formatMoney(wallet.carteraDigital, user?.currency)}</Text>
               </View>
             </View>
             <View style={styles.walletFooter}>
@@ -183,7 +183,7 @@ export default function Home() {
             <Text style={[styles.budgetTitle, { color: colors.onSurface }]}>PRESUPUESTO</Text>
             <View style={styles.budgetCalcIcon}>
               <Feather name="minus-circle" size={16} color={colors.onSurfaceTertiary} />
-              <Text style={[styles.budgetTotal, { color: colors.onSurface }]}>TOTAL: {formatMoney(presupuestoTotal, "PEN")}</Text>
+              <Text style={[styles.budgetTotal, { color: colors.onSurface }]}>TOTAL: {formatMoney(presupuestoTotal, user?.currency)}</Text>
             </View>
           </View>
           <View style={styles.budgetPillRow}>
@@ -200,7 +200,7 @@ export default function Home() {
                   <Feather name="bar-chart-2" size={13} color={BUDGET_VITAL_COLOR} />
                 </View>
                 <Text style={[styles.budgetPillText, { color: colors.onSurface }]} numberOfLines={1}>
-                  VITAL: {formatMoney(vitalTotal, "PEN")}
+                  VITAL: {formatMoney(vitalTotal, user?.currency)}
                 </Text>
                 <Feather name="edit-2" size={13} color={colors.onSurfaceTertiary} />
               </View>
@@ -221,7 +221,7 @@ export default function Home() {
                   <Feather name="slash" size={13} color={BUDGET_SECO_COLOR} />
                 </View>
                 <Text style={[styles.budgetPillText, { color: colors.onSurface }]} numberOfLines={1}>
-                  SECO: {formatMoney(secoTotal, "PEN")}
+                  SECO: {formatMoney(secoTotal, user?.currency)}
                 </Text>
                 <Feather name="edit-2" size={13} color={colors.onSurfaceTertiary} />
               </View>
@@ -237,17 +237,17 @@ export default function Home() {
           <LinearGradient colors={CAJA_CHICA_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summaryCard}>
             <Feather name="archive" size={20} color="#FFFFFF" />
             <Text style={styles.summaryTitle}>CAJA CHICA</Text>
-            <Text style={styles.summaryAmount}>{formatMoney(wallet.cajaChica, "PEN")}</Text>
+            <Text style={styles.summaryAmount}>{formatMoney(wallet.cajaChica, user?.currency)}</Text>
           </LinearGradient>
           <LinearGradient colors={AHORRO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summaryCard}>
             <MaterialCommunityIcons name="piggy-bank" size={20} color="#FFFFFF" />
             <Text style={styles.summaryTitle}>AHORRO</Text>
-            <Text style={styles.summaryAmount}>{formatMoney(wallet.ahorro, "PEN")}</Text>
+            <Text style={styles.summaryAmount}>{formatMoney(wallet.ahorro, user?.currency)}</Text>
           </LinearGradient>
           <LinearGradient colors={NETO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summaryCard}>
             <MaterialCommunityIcons name="cash" size={20} color="#FFFFFF" />
             <Text style={styles.summaryTitle}>NETO</Text>
-            <Text style={styles.summaryAmount}>{formatMoney(neto, "PEN")}</Text>
+            <Text style={styles.summaryAmount}>{formatMoney(neto, user?.currency)}</Text>
           </LinearGradient>
         </View>
 
@@ -281,12 +281,12 @@ export default function Home() {
                     <Text style={[styles.cycleMonth, { color: colors.onSurface }]}>{(cycle.label || "").toUpperCase()}</Text>
                     <Text style={[styles.cycleRange, { color: colors.onSurfaceTertiary }]}>{rangeLabel}</Text>
                     <Text style={[styles.cycleDetail, { color: colors.onSurfaceTertiary }]}>
-                      CAJA CHICA <Text style={{ color: colors.onSurface, fontFamily: FONTS.bold }}>{formatMoney(cycle.caja_chica_snapshot, "PEN")}</Text>
-                      {"  "}AHORRO <Text style={{ color: colors.onSurface, fontFamily: FONTS.bold }}>{formatMoney(cycle.ahorro_snapshot, "PEN")}</Text>
+                      CAJA CHICA <Text style={{ color: colors.onSurface, fontFamily: FONTS.bold }}>{formatMoney(cycle.caja_chica_snapshot, user?.currency)}</Text>
+                      {"  "}AHORRO <Text style={{ color: colors.onSurface, fontFamily: FONTS.bold }}>{formatMoney(cycle.ahorro_snapshot, user?.currency)}</Text>
                     </Text>
                     <Text style={[styles.cycleDetail, { color: colors.onSurfaceTertiary }]}>
-                      RESTO DE CAJA <Text style={{ color: colors.success, fontFamily: FONTS.bold }}>+{formatMoney(cycle.resto_caja, "PEN")}</Text>
-                      {"  "}TOTAL <Text style={{ color: colors.success, fontFamily: FONTS.bold }}>+{formatMoney(total, "PEN")}</Text>
+                      RESTO DE CAJA <Text style={{ color: colors.success, fontFamily: FONTS.bold }}>+{formatMoney(cycle.resto_caja, user?.currency)}</Text>
+                      {"  "}TOTAL <Text style={{ color: colors.success, fontFamily: FONTS.bold }}>+{formatMoney(total, user?.currency)}</Text>
                     </Text>
                   </View>
                   <Pressable onPress={() => deleteCycle(cycle.id)} hitSlop={8} testID={`home-cycle-delete-${cycle.id}`}>

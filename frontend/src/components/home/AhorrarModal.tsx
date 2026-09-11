@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Modal, Pressable, TextInput } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
-import { formatMoney } from "@/src/utils/format";
+import { formatMoney, currencySymbol } from "@/src/utils/format";
 
 // Botón "AHORRAR": sugerencias basadas en el último sueldo registrado
 // (Básico 10% / Intermedio 20% / Avanzado 30%) + monto personalizado.
@@ -19,6 +20,7 @@ export function AhorrarModal({
   onClose: () => void;
 }) {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const [amount, setAmount] = useState("");
 
   useEffect(() => {
@@ -55,14 +57,14 @@ export function AhorrarModal({
                   testID={`ahorrar-suggestion-${s.key}`}
                 >
                   <Text style={[styles.suggestionLabel, { color: colors.onSurface }]}>{s.label}</Text>
-                  <Text style={[styles.suggestionAmount, { color: colors.brand }]}>{formatMoney(lastSalary * s.pct, "PEN")}</Text>
+                  <Text style={[styles.suggestionAmount, { color: colors.brand }]}>{formatMoney(lastSalary * s.pct, user?.currency)}</Text>
                 </Pressable>
               ))}
             </View>
           ) : null}
 
           <View style={[styles.inputWrap, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
-            <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>S/</Text>
+            <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>{currencySymbol(user?.currency)}</Text>
             <TextInput
               value={amount}
               onChangeText={setAmount}

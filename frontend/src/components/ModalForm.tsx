@@ -46,16 +46,24 @@ export function ModalFormHeader({ icon, title }: { icon: keyof typeof Feather.gl
 export function ModalFormField({
   label,
   icon,
+  prefixText,
   multiline,
   style,
   containerStyle,
   ...props
-}: TextInputProps & { label?: string; icon?: keyof typeof Feather.glyphMap; containerStyle?: StyleProp<ViewStyle> }) {
+}: TextInputProps & {
+  label?: string;
+  icon?: keyof typeof Feather.glyphMap;
+  // Símbolo de moneda real (S/, $, €...) en vez del ícono genérico de dólar,
+  // para los campos de Monto -mutuamente excluyente con `icon`-.
+  prefixText?: string;
+  containerStyle?: StyleProp<ViewStyle>;
+}) {
   return (
     <View style={[{ gap: SPACING.xs }, containerStyle]}>
       {label ? <Text style={fieldStyles.label}>{label}</Text> : null}
       <View style={[fieldStyles.wrap, multiline && fieldStyles.wrapMultiline]}>
-        {icon ? <Feather name={icon} size={18} color="#4A72FF" /> : null}
+        {prefixText ? <Text style={fieldStyles.prefixText}>{prefixText}</Text> : icon ? <Feather name={icon} size={18} color="#4A72FF" /> : null}
         <TextInput
           placeholderTextColor={SUBTLE}
           multiline={multiline}
@@ -210,6 +218,7 @@ const fieldStyles = StyleSheet.create({
   },
   wrapMultiline: { borderRadius: RADIUS.lg, height: undefined, minHeight: 110, alignItems: "flex-start", paddingVertical: SPACING.sm },
   input: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.lg, height: "100%", color: INK },
+  prefixText: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg, color: "#4A72FF" },
   inputMultiline: { height: undefined, minHeight: 96, textAlignVertical: "top" },
 });
 

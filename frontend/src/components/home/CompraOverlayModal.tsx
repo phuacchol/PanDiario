@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Modal, Pressable, TextInput, ScrollView, Switch
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { Button, Field, Segmented } from "@/src/components/ui";
 import { OriginGrid } from "@/src/components/OriginGrid";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
@@ -41,6 +42,7 @@ export function CompraOverlayModal({
   onClose: () => void;
 }) {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState(false);
   const [newItem, setNewItem] = useState("");
@@ -218,7 +220,7 @@ export function CompraOverlayModal({
                     <View style={{ gap: SPACING.xs }}>
                       <Field label="Efectivo pagado" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="compra-cash-input" />
                       <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm }}>
-                        Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
+                        Digital (calculado): {formatMoney(digitalRemainder, user?.currency)}
                       </Text>
                     </View>
                   ) : null}

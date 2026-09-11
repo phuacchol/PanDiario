@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 import { formatMoney, formatLocalDate, formatLocalTime } from "@/src/utils/format";
 import type { Transaction } from "@/src/context/DataContext";
@@ -29,6 +30,7 @@ export function TransactionCard({
   testIDPrefix: string;
 }) {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const methodLabel = METHOD_LABEL[transaction.method || "efectivo"] || "EFECTIVO";
   const dateLabel = formatLocalDate(transaction.created_at, { withYear: true }).toUpperCase().replace(/\./g, "");
 
@@ -45,7 +47,7 @@ export function TransactionCard({
       <View style={[styles.body, { backgroundColor: colors.surfaceSecondary }]}>
         <View style={{ flex: 1 }}>
           <Text style={[styles.amount, { color: amountColor }]}>
-            {amountPrefix}{formatMoney(transaction.amount, "PEN")}
+            {amountPrefix}{formatMoney(transaction.amount, user?.currency)}
           </Text>
           <Text style={[styles.method, { color: colors.onSurfaceTertiary }]}>{methodLabel}</Text>
           <Text style={[styles.dateLine, { color: colors.onSurfaceTertiary }]}>{dateLabel}</Text>

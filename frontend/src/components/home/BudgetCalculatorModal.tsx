@@ -3,9 +3,10 @@ import { View, Text, StyleSheet, Modal, Pressable, TextInput } from "react-nativ
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { Button, Segmented } from "@/src/components/ui";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
-import { formatMoney } from "@/src/utils/format";
+import { formatMoney, currencySymbol } from "@/src/utils/format";
 import type { BudgetCategory, BudgetType } from "@/src/context/DataContext";
 
 // Calculadora de Presupuesto: pestañas Vital/Secundario, lista de
@@ -31,6 +32,7 @@ export function BudgetCalculatorModal({
   onClose: () => void;
 }) {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const [tab, setTab] = useState<Exclude<BudgetType, "ingreso">>(initialTab === "ingreso" ? "vital" : initialTab);
   const [newName, setNewName] = useState("");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -105,7 +107,7 @@ export function BudgetCalculatorModal({
                       {item.name}
                     </Text>
                     <View style={[styles.amountWrap, { backgroundColor: colors.surfaceTertiary }]}>
-                      <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm }}>S/</Text>
+                      <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm }}>{currencySymbol(user?.currency)}</Text>
                       <TextInput
                         defaultValue={String(item.amount)}
                         keyboardType="decimal-pad"
@@ -142,7 +144,7 @@ export function BudgetCalculatorModal({
             <View style={[styles.totalRow, { borderTopColor: colors.border }]}>
               <Text style={[styles.totalLabel, { color: colors.onSurfaceTertiary }]}>TOTAL {tab === "vital" ? "VITAL" : "SECUNDARIO"}</Text>
               <Text style={[styles.totalValue, { color: colors.onSurface }]} testID="budget-calc-total">
-                {formatMoney(total, "PEN")}
+                {formatMoney(total, user?.currency)}
               </Text>
             </View>
 

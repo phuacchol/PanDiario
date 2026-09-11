@@ -10,9 +10,10 @@ import { TransactionCard } from "@/src/components/TransactionCard";
 import { ModalFormHeader, ModalFormField, ModalFormSegmented, ModalFormOriginGrid, ModalFormButton, FloatingMascot, MODAL_FORM_MASCOT_SPACER } from "@/src/components/ModalForm";
 import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { useData, type Transaction, type Origin, type Method } from "@/src/context/DataContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE, ORIGIN_HEADER_COLORS, MODAL_FORM_BG_GRADIENT } from "@/src/theme/theme";
-import { formatMoney } from "@/src/utils/format";
+import { formatMoney, currencySymbol } from "@/src/utils/format";
 
 // Misma regla que antes pintaba el borde lateral de cada fila de Gasto según
 // la cuenta/origen del dinero (nunca la categoría de compra): ahora pinta la
@@ -24,6 +25,7 @@ function originHeaderColor(origin: Origin, colors: ReturnType<typeof useTheme>["
 
 export default function GastoScreen() {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const { transactions, budgetCategories, addBudgetCategory, addExpense, updateTransaction, deleteTransaction } = useData();
 
   const [search, setSearch] = useState("");
@@ -170,7 +172,7 @@ export default function GastoScreen() {
                 </Pressable>
               </View>
 
-              <ModalFormField label="Monto" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={amount} onChangeText={setAmount} testID="gasto-amount-input" />
+              <ModalFormField label="Monto" prefixText={currencySymbol(user?.currency)} keyboardType="decimal-pad" placeholder="0.00" value={amount} onChangeText={setAmount} testID="gasto-amount-input" />
               <ModalFormSegmented
                 testID="gasto-method"
                 options={[
@@ -184,9 +186,9 @@ export default function GastoScreen() {
 
               {method === "mixto" ? (
                 <View style={{ gap: SPACING.xs }}>
-                  <ModalFormField label="Efectivo pagado" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="gasto-cash-input" />
+                  <ModalFormField label="Efectivo pagado" prefixText={currencySymbol(user?.currency)} keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="gasto-cash-input" />
                   <Text style={{ color: "#94A3B8", fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm, marginLeft: 2 }}>
-                    Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
+                    Digital (calculado): {formatMoney(digitalRemainder, user?.currency)}
                   </Text>
                 </View>
               ) : null}

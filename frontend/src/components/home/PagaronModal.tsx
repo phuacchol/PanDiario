@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Modal, Pressable, TextInput, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { Segmented } from "@/src/components/ui";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
-import { formatMoney, formatLocalDate } from "@/src/utils/format";
+import { formatMoney, formatLocalDate, currencySymbol } from "@/src/utils/format";
 
 export type SalaryMethod = "efectivo" | "transferencia" | "mixto";
 
@@ -21,6 +22,7 @@ export function PagaronModal({
   onClose: () => void;
 }) {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<SalaryMethod>("efectivo");
   const [cashAmount, setCashAmount] = useState("");
@@ -63,7 +65,7 @@ export function PagaronModal({
             <View style={{ gap: SPACING.xs }}>
               <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Monto recibido</Text>
               <View style={[styles.inputWrap, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
-                <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>S/</Text>
+                <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>{currencySymbol(user?.currency)}</Text>
                 <TextInput
                   value={amount}
                   onChangeText={setAmount}
@@ -94,7 +96,7 @@ export function PagaronModal({
               <View style={{ gap: SPACING.xs }}>
                 <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Efectivo recibido</Text>
                 <View style={[styles.inputWrap, { backgroundColor: colors.surfaceTertiary, borderColor: colors.border }]}>
-                  <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>S/</Text>
+                  <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold }}>{currencySymbol(user?.currency)}</Text>
                   <TextInput
                     value={cashAmount}
                     onChangeText={setCashAmount}
@@ -106,7 +108,7 @@ export function PagaronModal({
                   />
                 </View>
                 <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm }}>
-                  Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
+                  Digital (calculado): {formatMoney(digitalRemainder, user?.currency)}
                 </Text>
               </View>
             ) : null}

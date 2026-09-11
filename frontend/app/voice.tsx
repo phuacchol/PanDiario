@@ -15,6 +15,7 @@ import { CategoryAutocomplete } from "@/src/components/CategoryAutocomplete";
 import { OriginGrid } from "@/src/components/OriginGrid";
 import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useData, type Method, type Origin } from "@/src/context/DataContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 import { formatMoney } from "@/src/utils/format";
@@ -37,6 +38,7 @@ const KIND_META: Record<Exclude<FinanceIntentKind, "unknown">, { label: string; 
 
 export default function Voice() {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { budgetCategories, addBudgetCategory, addIncome, addExpense, addNote } = useData();
@@ -312,7 +314,7 @@ export default function Voice() {
                   <View style={{ gap: SPACING.xs }}>
                     <Field label="Efectivo" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={editCashAmount} onChangeText={setEditCashAmount} testID="voice-confirm-cash" />
                     <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm }}>
-                      Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
+                      Digital (calculado): {formatMoney(digitalRemainder, user?.currency)}
                     </Text>
                   </View>
                 ) : null}

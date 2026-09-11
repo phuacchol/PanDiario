@@ -10,12 +10,14 @@ import { TransactionCard } from "@/src/components/TransactionCard";
 import { ModalFormHeader, ModalFormField, ModalFormSegmented, ModalFormButton, FloatingMascot, MODAL_FORM_MASCOT_SPACER } from "@/src/components/ModalForm";
 import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { useData, type Transaction, type Method } from "@/src/context/DataContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE, MODAL_FORM_BG_GRADIENT } from "@/src/theme/theme";
-import { formatMoney } from "@/src/utils/format";
+import { formatMoney, currencySymbol } from "@/src/utils/format";
 
 export default function IngresoScreen() {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const { transactions, budgetCategories, addBudgetCategory, addIncome, updateTransaction, deleteTransaction } = useData();
 
   const [search, setSearch] = useState("");
@@ -159,7 +161,7 @@ export default function IngresoScreen() {
                 </Pressable>
               </View>
 
-              <ModalFormField label="Monto" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={amount} onChangeText={setAmount} testID="ingreso-amount-input" />
+              <ModalFormField label="Monto" prefixText={currencySymbol(user?.currency)} keyboardType="decimal-pad" placeholder="0.00" value={amount} onChangeText={setAmount} testID="ingreso-amount-input" />
               <ModalFormSegmented
                 testID="ingreso-method"
                 options={[
@@ -173,9 +175,9 @@ export default function IngresoScreen() {
 
               {method === "mixto" ? (
                 <View style={{ gap: SPACING.xs }}>
-                  <ModalFormField label="Efectivo recibido" icon="dollar-sign" keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="ingreso-cash-input" />
+                  <ModalFormField label="Efectivo recibido" prefixText={currencySymbol(user?.currency)} keyboardType="decimal-pad" placeholder="0.00" value={cashAmount} onChangeText={setCashAmount} testID="ingreso-cash-input" />
                   <Text style={{ color: "#94A3B8", fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm, marginLeft: 2 }}>
-                    Digital (calculado): {formatMoney(digitalRemainder, "PEN")}
+                    Digital (calculado): {formatMoney(digitalRemainder, user?.currency)}
                   </Text>
                 </View>
               ) : null}

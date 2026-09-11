@@ -2,6 +2,7 @@ import { useState } from "react";
 import { View, Text, StyleSheet, Modal, Pressable, FlatList } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useAuth } from "@/src/context/AuthContext";
 import { Segmented } from "@/src/components/ui";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 import { formatMoney, formatLocalDate, formatLocalTime } from "@/src/utils/format";
@@ -27,6 +28,7 @@ export function CierreDetailModal({
   onClose: () => void;
 }) {
   const { colors } = useTheme();
+  const { user } = useAuth();
   const [tab, setTab] = useState<DetailTab>("ingresos");
 
   if (!cycle) return null;
@@ -77,7 +79,7 @@ export function CierreDetailModal({
                         {formatLocalDate(item.created_at)} · {formatLocalTime(item.created_at)}
                       </Text>
                     </View>
-                    <Text style={[styles.rowAmount, { color: colors.success }]}>+{formatMoney(item.amount, "PEN")}</Text>
+                    <Text style={[styles.rowAmount, { color: colors.success }]}>+{formatMoney(item.amount, user?.currency)}</Text>
                   </View>
                 )}
               />
@@ -97,7 +99,7 @@ export function CierreDetailModal({
                         {formatLocalDate(item.created_at)} · {formatLocalTime(item.created_at)}
                       </Text>
                     </View>
-                    <Text style={[styles.rowAmount, { color: colors.error }]}>-{formatMoney(item.amount, "PEN")}</Text>
+                    <Text style={[styles.rowAmount, { color: colors.error }]}>-{formatMoney(item.amount, user?.currency)}</Text>
                   </View>
                 )}
               />

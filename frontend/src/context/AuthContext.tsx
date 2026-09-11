@@ -324,10 +324,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return updated;
     });
 
+    // Antes esta función solo actualizaba el estado en memoria y la caché de
+    // AsyncStorage, nunca la fila real en SQLite: un cambio de moneda (o
+    // tema) sobrevivía a esta sesión gracias a la caché, pero si esa caché
+    // se perdía, loadMe() volvía a leer el valor viejo directo de SQLite.
+    // `user` (closure del render que creó este callback, ver deps abajo)
+    // tiene el mismo id que `prev` recibe arriba -React siempre le pasa el
+    // estado más reciente al updater de setUser, independientemente de los
+    // deps de este useCallback-.
+    if (user) {
+      try {
+        const db = await getDb();
+        if (db) {
+          const fields: string[] = [];
+          const values: (string | number)[] = [];
+          if (u.currency !== undefined) {
+            fields.push("currency = ?");
+            values.push(u.currency);
+          }
+          if (u.theme !== undefined) {
+            fields.push("theme = ?");
+            values.push(u.theme);
+          }
+          if (u.name !== undefined) {
+            fields.push("name = ?");
+            values.push(u.name);
+          }
+          if (fields.length > 0) {
+            values.push(user.id);
+            await db.runAsync(`UPDATE users SET ${fields.join(", ")} WHERE id = ?`, values).catch(() => {});
+          }
+        }
+      } catch {}
+    }
+
     try {
       await api.patch("/settings", u);
     } catch {}
-  }, []);
+  }, [user]);
 
   return (
     <Ctx.Provider value={{ user, loading, signIn, signUp, signOut, updateUser, refresh: loadMe }}>
