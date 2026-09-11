@@ -128,7 +128,7 @@ export default function IngresoScreen() {
         data={ingresos}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.sm }}
-        ListEmptyComponent={<EmptyState variant="box" title="Sin ingresos" subtitle="Registra el primero con el botón + o dilo por voz." />}
+        ListEmptyComponent={<EmptyState variant="bienvenido" title="Sin ingresos" subtitle="Registra el primero con el botón + o dilo por voz." />}
         renderItem={({ item }) => (
           <TransactionCard
             transaction={item}

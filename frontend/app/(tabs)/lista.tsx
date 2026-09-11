@@ -236,7 +236,7 @@ export default function ListaScreen() {
         data={filtered}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.sm }}
-        ListEmptyComponent={<EmptyState variant="box" title="Sin listas" subtitle="Crea una desde el botón + o dilo por voz." />}
+        ListEmptyComponent={<EmptyState variant="bienvenido" title="Sin listas" subtitle="Crea una desde el botón + o dilo por voz." />}
         renderItem={({ item }: { item: ListRecord }) => (
           <ListaCard
             item={item}

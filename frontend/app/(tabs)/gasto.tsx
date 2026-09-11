@@ -139,7 +139,7 @@ export default function GastoScreen() {
         data={gastos}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.sm }}
-        ListEmptyComponent={<EmptyState variant="box" title="Sin gastos" subtitle="Registra el primero con el botón + o dilo por voz." />}
+        ListEmptyComponent={<EmptyState variant="bienvenido" title="Sin gastos" subtitle="Registra el primero con el botón + o dilo por voz." />}
         renderItem={({ item }) => (
           <TransactionCard
             transaction={item}

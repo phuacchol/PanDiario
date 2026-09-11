@@ -226,7 +226,7 @@ export default function NotaScreen() {
         contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.sm }}
         ListEmptyComponent={
           <EmptyState
-            variant="happy"
+            variant="bienvenido"
             title={panel === "notas" ? "No hay notas" : "No hay recordatorios"}
             subtitle="Agrega una desde el botón + o dilo por voz."
           />

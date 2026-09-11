@@ -10,6 +10,9 @@ const SOURCES = {
   box: require("@/assets/images/mascot_box.png"),
   happy: require("@/assets/images/mascot_happy.png"),
   sad: require("@/assets/images/mascot_sad.png"),
+  // Estado vacío unificado de Lista/Ingreso/Gasto/Nota: la mascota con gorro
+  // de dormir y pijama de estrellas, misma imagen que ya usa Bienvenida.
+  bienvenido: require("@/assets/images/pandiario/pan-bienvenido.png"),
 };
 
 export function BrandLogo({ width = 220 }: { width?: number }) {
