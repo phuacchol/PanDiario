@@ -6,7 +6,7 @@ import { TopBar } from "@/src/components/TopBar";
 import { EmptyState } from "@/src/components/Mascot";
 import { Button, Field, Segmented, ChipRow, InputPrompt } from "@/src/components/ui";
 import { CategoryAutocomplete } from "@/src/components/CategoryAutocomplete";
-import { TransactionCard, INGRESO_HEADER_COLOR } from "@/src/components/TransactionCard";
+import { TransactionCard } from "@/src/components/TransactionCard";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type Transaction, type Method } from "@/src/context/DataContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
@@ -130,7 +130,7 @@ export default function IngresoScreen() {
         renderItem={({ item }) => (
           <TransactionCard
             transaction={item}
-            headerColor={INGRESO_HEADER_COLOR}
+            headerColor={colors.success}
             amountColor={colors.onSurface}
             amountPrefix=""
             onEdit={() => openEdit(item)}

@@ -7,11 +7,19 @@ import { EmptyState } from "@/src/components/Mascot";
 import { Button, Field, Segmented, ChipRow, InputPrompt } from "@/src/components/ui";
 import { CategoryAutocomplete } from "@/src/components/CategoryAutocomplete";
 import { OriginGrid } from "@/src/components/OriginGrid";
-import { TransactionCard, categoryHeaderColor } from "@/src/components/TransactionCard";
+import { TransactionCard } from "@/src/components/TransactionCard";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type Transaction, type Origin, type Method } from "@/src/context/DataContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, ORIGIN_HEADER_COLORS } from "@/src/theme/theme";
 import { formatMoney } from "@/src/utils/format";
+
+// Misma regla que antes pintaba el borde lateral de cada fila de Gasto según
+// la cuenta/origen del dinero (nunca la categoría de compra): ahora pinta la
+// franja superior de la tarjeta. "cuenta" no tiene color propio asignado en
+// ORIGIN_HEADER_COLORS -cae al warning del tema, igual que antes.
+function originHeaderColor(origin: Origin, colors: ReturnType<typeof useTheme>["colors"]): string {
+  return ORIGIN_HEADER_COLORS[origin as keyof typeof ORIGIN_HEADER_COLORS] || colors.warning;
+}
 
 export default function GastoScreen() {
   const { colors } = useTheme();
@@ -134,7 +142,7 @@ export default function GastoScreen() {
         renderItem={({ item }) => (
           <TransactionCard
             transaction={item}
-            headerColor={categoryHeaderColor(item.categoryId || item.category || "Otros")}
+            headerColor={originHeaderColor(item.origin, colors)}
             amountColor={colors.error}
             amountPrefix="-"
             onEdit={() => openEdit(item)}

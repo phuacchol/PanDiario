@@ -11,23 +11,6 @@ const METHOD_LABEL: Record<string, string> = {
   mixto: "MIXTO",
 };
 
-// Paleta rotativa para las cabeceras de las tarjetas de Gasto: el color se
-// deriva de forma estable a partir de categoryId (o del nombre si la fila es
-// vieja y no tiene id) para que cada categoría -incluidas dos "Otros"
-// distintas, una Vital y otra Secundario- mantenga siempre el mismo color.
-const GASTO_HEADER_PALETTE = ["#3CB585", "#E67E22", "#9B59B6", "#3498DB", "#E74C3C", "#16A085", "#D4AC0D", "#E84393"];
-
-export function categoryHeaderColor(key: string): string {
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
-  return GASTO_HEADER_PALETTE[hash % GASTO_HEADER_PALETTE.length];
-}
-
-// Azul celeste único para todas las tarjetas de Ingreso: a diferencia del
-// gasto, un ingreso no tiene sub-tipos (vital/secundario/caja chica/ahorro)
-// que ameriten variar el color por categoría.
-export const INGRESO_HEADER_COLOR = "#5B9BD8";
-
 export function TransactionCard({
   transaction,
   headerColor,
