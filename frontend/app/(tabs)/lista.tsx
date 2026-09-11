@@ -8,7 +8,8 @@ import { EmptyState } from "@/src/components/Mascot";
 import { DatePickerModal } from "@/src/components/DatePickerModal";
 import { TimePickerModal } from "@/src/components/TimePickerModal";
 import { CompraOverlayModal } from "@/src/components/home/CompraOverlayModal";
-import { ModalFormHeader, ModalFormField, ModalFormButton } from "@/src/components/ModalForm";
+import { ModalFormHeader, ModalFormField, ModalFormButton, FloatingMascot, MODAL_FORM_MASCOT_SPACER } from "@/src/components/ModalForm";
+import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type ListRecord, type ListEntry } from "@/src/context/DataContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE, NETO_GRADIENT, paletteColor, MODAL_FORM_BG_GRADIENT } from "@/src/theme/theme";
@@ -257,7 +258,8 @@ export default function ListaScreen() {
       <Modal visible={showNew} transparent animationType="fade" onRequestClose={() => setShowNew(false)}>
         <View style={styles.backdrop}>
           <LinearGradient colors={MODAL_FORM_BG_GRADIENT} style={styles.newCard}>
-            <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md }} bottomOffset={20}>
+            <FloatingMascot source={PAN_ASSETS.modalLista} />
+            <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md, paddingTop: MODAL_FORM_MASCOT_SPACER }} bottomOffset={20}>
               <ModalFormHeader icon="check-square" title="Nueva Lista" />
               <ModalFormField label="Nombre de la lista" icon="edit-3" placeholder="Ej. Compras del súper" value={newTitle} onChangeText={setNewTitle} testID="lista-new-title" />
 
@@ -479,7 +481,7 @@ const styles = StyleSheet.create({
   },
   fabGradient: { flex: 1, alignItems: "center", justifyContent: "center" },
   backdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.5)", alignItems: "center", justifyContent: "center", padding: SPACING.xl },
-  newCard: { width: "100%", maxWidth: 380, maxHeight: "85%", borderRadius: RADIUS.lg, padding: SPACING.xl },
+  newCard: { width: "100%", maxWidth: 380, maxHeight: "85%", borderRadius: RADIUS.lg, padding: SPACING.xl, overflow: "visible" },
   reminderToggle: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
   cancelBtn: { flex: 1, height: 56, borderRadius: RADIUS.lg, alignItems: "center", justifyContent: "center" },
   draftItemRow: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.sm, borderRadius: RADIUS.md },

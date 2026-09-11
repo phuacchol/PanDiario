@@ -7,7 +7,8 @@ import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader"
 import { EmptyState } from "@/src/components/Mascot";
 import { ChipRow, InputPrompt } from "@/src/components/ui";
 import { TransactionCard } from "@/src/components/TransactionCard";
-import { ModalFormHeader, ModalFormField, ModalFormSegmented, ModalFormButton } from "@/src/components/ModalForm";
+import { ModalFormHeader, ModalFormField, ModalFormSegmented, ModalFormButton, FloatingMascot, MODAL_FORM_MASCOT_SPACER } from "@/src/components/ModalForm";
+import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type Transaction, type Method } from "@/src/context/DataContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE, MODAL_FORM_BG_GRADIENT } from "@/src/theme/theme";
@@ -148,7 +149,8 @@ export default function IngresoScreen() {
       <Modal visible={showEditor} transparent animationType="slide" onRequestClose={() => setShowEditor(false)}>
         <View style={styles.backdrop}>
           <LinearGradient colors={MODAL_FORM_BG_GRADIENT} style={styles.sheet}>
-            <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md }} bottomOffset={20}>
+            <FloatingMascot source={PAN_ASSETS.modalIngreso} />
+            <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md, paddingTop: MODAL_FORM_MASCOT_SPACER }} bottomOffset={20}>
               <View style={styles.sheetHeader}>
                 <View style={styles.sheetHeaderSpacer} />
                 <ModalFormHeader icon="arrow-down-circle" title={editingId ? "Editar Ingreso" : "Nuevo Ingreso"} />
@@ -202,7 +204,7 @@ const styles = StyleSheet.create({
   addCatChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: SPACING.md, height: 32, borderRadius: RADIUS.pill },
   fab: { position: "absolute", right: SPACING.lg, bottom: SPACING.xl, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", elevation: 6, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   backdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.5)", justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.xl, maxHeight: "85%" },
+  sheet: { borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.xl, maxHeight: "85%", overflow: "visible" },
   sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: SPACING.sm },
   sheetHeaderSpacer: { width: 22 },
 });

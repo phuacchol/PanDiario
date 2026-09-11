@@ -1,7 +1,8 @@
-import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, TextInputProps, ViewStyle, StyleProp } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, TextInputProps, ViewStyle, StyleProp, ImageSourcePropType } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { Image } from "expo-image";
 import { SPACING, RADIUS, FONTS, FONT_SIZE, MODAL_FORM_BUTTON_GRADIENT } from "@/src/theme/theme";
 import { ORIGIN_OPTIONS } from "@/src/constants";
 import type { Origin } from "@/src/context/DataContext";
@@ -16,6 +17,20 @@ const INK = "#1E1B38";
 const SUBTLE = "#94A3B8";
 const BORDER = "#E2E8F0";
 const TRACK = "#EEF1F8";
+
+// Ilustración flotante centrada que sobresale del borde superior del panel
+// -mitad afuera, mitad adentro-. El contenedor del panel debe tener
+// overflow: "visible" (ModalForm ya lo aplica en su propio sheet; las
+// pantallas que arman el suyo deben hacerlo también) para que no se recorte
+// en Android/iOS. position:"absolute" en RN se ancla al View padre más
+// cercano sin necesitar position:"relative" explícito en ese padre.
+export function FloatingMascot({ source }: { source: ImageSourcePropType }) {
+  return (
+    <View style={mascotStyles.wrap} pointerEvents="none">
+      <Image source={source} style={mascotStyles.image} contentFit="contain" />
+    </View>
+  );
+}
 
 export function ModalFormHeader({ icon, title }: { icon: keyof typeof Feather.glyphMap; title: string }) {
   return (
@@ -228,3 +243,13 @@ const btnStyles = StyleSheet.create({
   gradient: { height: 56, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: SPACING.sm },
   text: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg, color: "#FFFFFF" },
 });
+
+const mascotStyles = StyleSheet.create({
+  wrap: { position: "absolute", top: -55, alignSelf: "center", zIndex: 10 },
+  image: { width: 110, height: 110 },
+});
+
+// Espacio reservado arriba del contenido del panel para que el título no
+// quede tapado por la mitad inferior de la ilustración flotante (ver
+// FloatingMascot: sobresale 55px, la otra mitad -~55px- cae dentro del panel).
+export const MODAL_FORM_MASCOT_SPACER = 40;
