@@ -153,7 +153,7 @@ export default function IngresoScreen() {
             <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md, paddingTop: MODAL_FORM_MASCOT_SPACER }} bottomOffset={20}>
               <View style={styles.sheetHeader}>
                 <View style={styles.sheetHeaderSpacer} />
-                <ModalFormHeader icon="arrow-down-circle" title={editingId ? "Editar Ingreso" : "Nuevo Ingreso"} />
+                <ModalFormHeader icon="arrow-up-circle" title={editingId ? "Editar Ingreso" : "Nuevo Ingreso"} />
                 <Pressable onPress={() => setShowEditor(false)} hitSlop={8} testID="ingreso-editor-close" style={styles.sheetHeaderSpacer}>
                   <Feather name="x" size={22} color="#94A3B8" />
                 </Pressable>

@@ -164,7 +164,7 @@ export default function GastoScreen() {
             <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md, paddingTop: MODAL_FORM_MASCOT_SPACER }} bottomOffset={20}>
               <View style={styles.sheetHeader}>
                 <View style={styles.sheetHeaderSpacer} />
-                <ModalFormHeader icon="arrow-up-circle" title={editingId ? "Editar Gasto" : "Nuevo Gasto"} />
+                <ModalFormHeader icon="arrow-down-circle" title={editingId ? "Editar Gasto" : "Nuevo Gasto"} />
                 <Pressable onPress={() => setShowEditor(false)} hitSlop={8} testID="gasto-editor-close" style={styles.sheetHeaderSpacer}>
                   <Feather name="x" size={22} color="#94A3B8" />
                 </Pressable>

@@ -39,8 +39,8 @@ export default function TabsLayout() {
             queda iluminada mientras se está en la Pantalla de Inicio. */}
         <Tabs.Screen name="index" options={{ href: null }} />
         <Tabs.Screen name="lista" options={{ title: "Lista", tabBarIcon: (p) => <TabIcon name="check-square" {...p} /> }} />
-        <Tabs.Screen name="ingreso" options={{ title: "Ingreso", tabBarIcon: (p) => <TabIcon name="arrow-down-circle" {...p} /> }} />
-        <Tabs.Screen name="gasto" options={{ title: "Gasto", tabBarIcon: (p) => <TabIcon name="arrow-up-circle" {...p} /> }} />
+        <Tabs.Screen name="ingreso" options={{ title: "Ingreso", tabBarIcon: (p) => <TabIcon name="arrow-up-circle" {...p} /> }} />
+        <Tabs.Screen name="gasto" options={{ title: "Gasto", tabBarIcon: (p) => <TabIcon name="arrow-down-circle" {...p} /> }} />
         <Tabs.Screen name="nota" options={{ title: "Nota", tabBarIcon: (p) => <TabIcon name="edit-3" {...p} /> }} />
       </Tabs>
 
