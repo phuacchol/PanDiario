@@ -158,7 +158,7 @@ export default function Login() {
         </Pressable>
 
         <View style={styles.header}>
-          <Image source={PAN_ASSETS.executive} style={styles.mascot} contentFit="contain" testID="mascot-executive" />
+          <Image source={PAN_ASSETS.login} style={styles.mascot} contentFit="contain" testID="mascot-login" />
           <Text style={styles.title}>¡Hola de nuevo!</Text>
           <Text style={styles.subtitle}>Inicia sesión en PanConMiel</Text>
         </View>

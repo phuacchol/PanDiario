@@ -1,16 +1,22 @@
-import { useEffect } from "react";
-import { View, StyleSheet, ActivityIndicator } from "react-native";
+import { useEffect, useState } from "react";
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/src/context/AuthContext";
-import { BicolorCurveBackground, CURVE_HEIGHT, MASCOT_SIZE, SCREEN_W } from "@/src/components/BicolorCurveBackground";
 import { PAN_ASSETS } from "@/src/constants/mascot";
+import { randomFinancialQuote } from "@/src/constants/quotes";
+import { SPACING, FONTS } from "@/src/theme/theme";
+
+const SPLASH_BG = "#6381e9";
 
 export default function Index() {
   const { user, loading } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // Una sola vez por montaje -lazy initializer-, no en cada re-render
+  // mientras loading pasa de true a false.
+  const [quote] = useState(randomFinancialQuote);
 
   useEffect(() => {
     if (loading) return;
@@ -19,40 +25,42 @@ export default function Index() {
   }, [user, loading, router]);
 
   return (
-    <BicolorCurveBackground>
-      <View style={[styles.topContent, { paddingTop: insets.top + 60 }]}>
-        <Image
-          source={PAN_ASSETS.logoText}
-          style={styles.logo}
-          contentFit="contain"
-          testID="splash-logo"
-        />
+    <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <View style={styles.logoWrap}>
+        <Image source={PAN_ASSETS.logoText} style={styles.logo} contentFit="contain" testID="splash-logo" />
       </View>
 
-      <Image
-        source={PAN_ASSETS.welcome}
-        style={[styles.mascot, { bottom: CURVE_HEIGHT - 60 }]}
-        contentFit="contain"
-        testID="splash-mascot"
-      />
-
-      <View style={[styles.bottomContent, { height: CURVE_HEIGHT, paddingBottom: insets.bottom + 40 }]}>
-        <ActivityIndicator color="#5B7BE8" size="small" testID="splash-spinner" />
+      <View style={styles.bottomContent}>
+        <ActivityIndicator color="#FFFFFF" size="small" testID="splash-spinner" style={{ marginBottom: SPACING.lg }} />
+        <Text style={styles.quote} testID="splash-quote">
+          {quote}
+        </Text>
       </View>
-    </BicolorCurveBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  topContent: { alignItems: "center" },
-  logo: { width: 220, height: 90 },
-  mascot: { position: "absolute", left: SCREEN_W / 2 - MASCOT_SIZE / 2, width: MASCOT_SIZE, height: MASCOT_SIZE },
+  screen: { flex: 1, backgroundColor: SPLASH_BG },
+  // Entre la cabecera y el centro: ~30% de la altura disponible en vez de
+  // 50% (centrado real) o pegado arriba del todo.
+  logoWrap: { flex: 0.32, alignItems: "center", justifyContent: "flex-end" },
+  logo: { width: 240, height: 100 },
   bottomContent: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
     alignItems: "center",
-    justifyContent: "flex-end",
+    paddingBottom: SPACING["2xl"],
+    paddingHorizontal: SPACING.xl,
+  },
+  quote: {
+    fontFamily: FONTS.medium,
+    fontSize: 13.5,
+    lineHeight: 19,
+    textAlign: "center",
+    color: "#FFFFFF",
+    paddingHorizontal: SPACING.md,
   },
 });

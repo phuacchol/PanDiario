@@ -56,7 +56,7 @@ export default function Register() {
         </Pressable>
 
         <View style={styles.header}>
-          <Image source={PAN_ASSETS.welcome} style={styles.mascot} contentFit="contain" testID="mascot-pajama" />
+          <Image source={PAN_ASSETS.register} style={styles.mascot} contentFit="contain" testID="mascot-register" />
           <Text style={[styles.title, { color: colors.onSurface }]}>Crea tu cuenta</Text>
           <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>Bienvenido a tu rincón financiero dulce</Text>
         </View>

@@ -13,6 +13,9 @@ export const PAN_ASSETS = {
   modalIngreso: require("@/assets/images/pandiario/pan-ingreso.png"),
   modalLista: require("@/assets/images/pandiario/pan-lista.png"),
   modalNota: require("@/assets/images/pandiario/pan-nota.png"),
+  // Ilustraciones de acceso/registro (app/(auth)/login.tsx y register.tsx).
+  login: require("@/assets/images/pandiario/pan-login.png"),
+  register: require("@/assets/images/pandiario/pan-registro.png"),
 } as const;
 
 export type PanAssetKey = keyof typeof PAN_ASSETS;
