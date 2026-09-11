@@ -2,13 +2,14 @@ import { useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Modal, FlatList, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Feather } from "@expo/vector-icons";
+import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useAuth } from "@/src/context/AuthContext";
 import { useData, daysUntil, type Cycle } from "@/src/context/DataContext";
 import { useTheme } from "@/src/theme/ThemeContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, CAJA_CHICA_GRADIENT, AHORRO_GRADIENT, NETO_GRADIENT, BUDGET_VITAL_COLOR, BUDGET_SECO_COLOR } from "@/src/theme/theme";
 import { formatMoney, formatLocalDate, formatLocalTime } from "@/src/utils/format";
 import { AhorrarModal } from "@/src/components/home/AhorrarModal";
 import { PagaronModal, type SalaryMethod } from "@/src/components/home/PagaronModal";
@@ -34,6 +35,7 @@ export default function Home() {
     deleteBudgetCategory,
     deleteCycle,
     refresh,
+    openCycleId,
   } = useData();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -61,6 +63,24 @@ export default function Home() {
   const secoTotal = useMemo(() => budgetCategories.filter((c) => c.type === "secundario").reduce((s, c) => s + c.amount, 0), [budgetCategories]);
   const presupuestoTotal = vitalTotal + secoTotal;
   const neto = carteraTotal + wallet.cajaChica + wallet.ahorro;
+
+  // budget_categories.amount YA ES el cupo restante (se descuenta en cada
+  // gasto, ver applyTxEffect en DataContext). No hay una columna aparte con
+  // el monto originalmente asignado, así que el "asignado" del ciclo en
+  // curso se reconstruye sumando de vuelta lo gastado este ciclo -sin tocar
+  // el esquema ni los datos guardados-, solo para pintar el % de la barra.
+  const vitalSpentCycle = useMemo(
+    () => transactions.filter((t) => t.origin === "vital" && t.cycle_id === openCycleId).reduce((s, t) => s + t.amount, 0),
+    [transactions, openCycleId]
+  );
+  const secoSpentCycle = useMemo(
+    () => transactions.filter((t) => t.origin === "secundario" && t.cycle_id === openCycleId).reduce((s, t) => s + t.amount, 0),
+    [transactions, openCycleId]
+  );
+  const vitalAssigned = vitalTotal + vitalSpentCycle;
+  const secoAssigned = secoTotal + secoSpentCycle;
+  const vitalPercent = vitalAssigned > 0 ? Math.max(0, Math.min(100, (vitalTotal / vitalAssigned) * 100)) : 0;
+  const secoPercent = secoAssigned > 0 ? Math.max(0, Math.min(100, (secoTotal / secoAssigned) * 100)) : 0;
 
   const closedCycles = useMemo(() => cycles.filter((c) => !!c.end_date).sort((a, b) => (b.end_date || "").localeCompare(a.end_date || "")), [cycles]);
   const availableYears = useMemo(() => {
@@ -161,17 +181,10 @@ export default function Home() {
         <View style={[styles.budgetCard, { backgroundColor: colors.surfaceSecondary }]}>
           <View style={styles.budgetHeader}>
             <Text style={[styles.budgetTitle, { color: colors.onSurface }]}>PRESUPUESTO</Text>
-            <Pressable
-              style={styles.budgetCalcIcon}
-              onPress={() => {
-                setBudgetInitialTab("vital");
-                setShowBudget(true);
-              }}
-              testID="home-budget-calculator-button"
-            >
-              <Feather name="divide-circle" size={16} color={colors.onSurfaceTertiary} />
+            <View style={styles.budgetCalcIcon}>
+              <Feather name="minus-circle" size={16} color={colors.onSurfaceTertiary} />
               <Text style={[styles.budgetTotal, { color: colors.onSurface }]}>TOTAL: {formatMoney(presupuestoTotal, "PEN")}</Text>
-            </Pressable>
+            </View>
           </View>
           <View style={styles.budgetPillRow}>
             <Pressable
@@ -182,8 +195,18 @@ export default function Home() {
               }}
               testID="home-budget-vital-pill"
             >
-              <Text style={[styles.budgetPillText, { color: colors.onSurface }]}>VITAL: {formatMoney(vitalTotal, "PEN")}</Text>
-              <Feather name="edit-2" size={13} color={colors.onSurfaceTertiary} />
+              <View style={styles.budgetPillTop}>
+                <View style={[styles.budgetIconWrap, { backgroundColor: BUDGET_VITAL_COLOR + "22" }]}>
+                  <Feather name="bar-chart-2" size={13} color={BUDGET_VITAL_COLOR} />
+                </View>
+                <Text style={[styles.budgetPillText, { color: colors.onSurface }]} numberOfLines={1}>
+                  VITAL: {formatMoney(vitalTotal, "PEN")}
+                </Text>
+                <Feather name="edit-2" size={13} color={colors.onSurfaceTertiary} />
+              </View>
+              <View style={[styles.budgetProgressTrack, { backgroundColor: colors.border }]}>
+                <View style={[styles.budgetProgressFill, { width: `${vitalPercent}%`, backgroundColor: BUDGET_VITAL_COLOR }]} />
+              </View>
             </Pressable>
             <Pressable
               style={[styles.budgetPill, { backgroundColor: colors.surfaceTertiary }]}
@@ -193,26 +216,39 @@ export default function Home() {
               }}
               testID="home-budget-secundario-pill"
             >
-              <Text style={[styles.budgetPillText, { color: colors.onSurface }]}>SECO: {formatMoney(secoTotal, "PEN")}</Text>
-              <Feather name="edit-2" size={13} color={colors.onSurfaceTertiary} />
+              <View style={styles.budgetPillTop}>
+                <View style={[styles.budgetIconWrap, { backgroundColor: BUDGET_SECO_COLOR + "22" }]}>
+                  <Feather name="slash" size={13} color={BUDGET_SECO_COLOR} />
+                </View>
+                <Text style={[styles.budgetPillText, { color: colors.onSurface }]} numberOfLines={1}>
+                  SECO: {formatMoney(secoTotal, "PEN")}
+                </Text>
+                <Feather name="edit-2" size={13} color={colors.onSurfaceTertiary} />
+              </View>
+              <View style={[styles.budgetProgressTrack, { backgroundColor: colors.border }]}>
+                <View style={[styles.budgetProgressFill, { width: `${secoPercent}%`, backgroundColor: BUDGET_SECO_COLOR }]} />
+              </View>
             </Pressable>
           </View>
         </View>
 
         {/* Tarjetas de resumen */}
         <View style={styles.summaryRow}>
-          <View style={[styles.summaryCard, { backgroundColor: colors.surfaceSecondary }]}>
-            <Text style={[styles.summaryTitle, { color: colors.onSurface }]}>CAJA CHICA</Text>
-            <Text style={[styles.summarySub, { color: colors.success }]}>(+{formatMoney(wallet.cajaChica, "PEN")} TOTAL)</Text>
-          </View>
-          <View style={[styles.summaryCard, { backgroundColor: colors.surfaceSecondary }]}>
-            <Text style={[styles.summaryTitle, { color: colors.onSurface }]}>AHORRO</Text>
-            <Text style={[styles.summarySub, { color: colors.success }]}>(+{formatMoney(wallet.ahorro, "PEN")} TOTAL)</Text>
-          </View>
-          <View style={[styles.summaryCard, { backgroundColor: colors.surfaceSecondary }]}>
-            <Text style={[styles.summaryTitle, { color: colors.onSurface }]}>NETO</Text>
-            <Text style={[styles.summarySub, { color: colors.brand }]}>({formatMoney(neto, "PEN")})</Text>
-          </View>
+          <LinearGradient colors={CAJA_CHICA_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summaryCard}>
+            <Feather name="archive" size={20} color="#FFFFFF" />
+            <Text style={styles.summaryTitle}>CAJA CHICA</Text>
+            <Text style={styles.summaryAmount}>{formatMoney(wallet.cajaChica, "PEN")}</Text>
+          </LinearGradient>
+          <LinearGradient colors={AHORRO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summaryCard}>
+            <MaterialCommunityIcons name="piggy-bank" size={20} color="#FFFFFF" />
+            <Text style={styles.summaryTitle}>AHORRO</Text>
+            <Text style={styles.summaryAmount}>{formatMoney(wallet.ahorro, "PEN")}</Text>
+          </LinearGradient>
+          <LinearGradient colors={NETO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.summaryCard}>
+            <MaterialCommunityIcons name="cash" size={20} color="#FFFFFF" />
+            <Text style={styles.summaryTitle}>NETO</Text>
+            <Text style={styles.summaryAmount}>{formatMoney(neto, "PEN")}</Text>
+          </LinearGradient>
         </View>
 
         {/* Historial de Cierres */}
@@ -328,7 +364,18 @@ const styles = StyleSheet.create({
   avatar: { width: 44, height: 44 },
   greeting: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.sm },
   userName: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg, maxWidth: 180 },
-  settingsBtn: { width: 42, height: 42, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
+  settingsBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: RADIUS.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
 
   reminderBanner: { flexDirection: "row", alignItems: "center", gap: SPACING.sm, padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1 },
   reminderText: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
@@ -336,7 +383,7 @@ const styles = StyleSheet.create({
 
   walletRow: { flexDirection: "row", gap: SPACING.sm },
   walletCard: { flex: 1, borderRadius: RADIUS.lg, padding: SPACING.lg, gap: SPACING.sm, justifyContent: "space-between" },
-  walletAmount: { fontFamily: FONTS.black, fontSize: FONT_SIZE["3xl"], color: "#4EE3A5" },
+  walletAmount: { fontFamily: FONTS.black, fontSize: FONT_SIZE["3xl"], color: "#FFFFFF" },
   walletSplitRow: { flexDirection: "row" },
   walletSplitLabel: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, color: "rgba(255,255,255,0.7)" },
   walletSplitValue: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base, color: "#FFFFFF" },
@@ -352,13 +399,17 @@ const styles = StyleSheet.create({
   budgetCalcIcon: { flexDirection: "row", alignItems: "center", gap: 6 },
   budgetTotal: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
   budgetPillRow: { flexDirection: "row", gap: SPACING.sm },
-  budgetPill: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, height: 44, borderRadius: RADIUS.pill },
-  budgetPillText: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm },
+  budgetPill: { flex: 1, gap: SPACING.sm, padding: SPACING.md, borderRadius: RADIUS.md },
+  budgetPillTop: { flexDirection: "row", alignItems: "center", gap: 6 },
+  budgetIconWrap: { width: 22, height: 22, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
+  budgetPillText: { flex: 1, fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm },
+  budgetProgressTrack: { height: 5, borderRadius: RADIUS.pill, overflow: "hidden" },
+  budgetProgressFill: { height: "100%", borderRadius: RADIUS.pill },
 
   summaryRow: { flexDirection: "row", gap: SPACING.sm },
-  summaryCard: { flex: 1, borderRadius: RADIUS.md, padding: SPACING.md, gap: 4, alignItems: "center" },
-  summaryTitle: { fontFamily: FONTS.bold, fontSize: 11, textAlign: "center" },
-  summarySub: { fontFamily: FONTS.medium, fontSize: 11, textAlign: "center" },
+  summaryCard: { flex: 1, borderRadius: RADIUS.md, paddingVertical: SPACING.lg, paddingHorizontal: SPACING.sm, gap: 6, alignItems: "center" },
+  summaryTitle: { fontFamily: FONTS.bold, fontSize: 11, textAlign: "center", color: "#FFFFFF" },
+  summaryAmount: { fontFamily: FONTS.black, fontSize: FONT_SIZE.lg, textAlign: "center", color: "#FFFFFF" },
 
   historyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontFamily: FONTS.black, fontSize: FONT_SIZE.base },

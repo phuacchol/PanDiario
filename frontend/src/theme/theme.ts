@@ -78,6 +78,14 @@ export const DARK_HERO_GRADIENT = ["#1E293B", "#0F172A"] as const;
 // (BicolorCurveBackground): reutilizado como fondo de Login para que ambas
 // pantallas compartan el mismo tono azul de marca.
 export const WELCOME_GRADIENT = ["#8FA7D6", "#6C86C1"] as const;
+// Degradados de las 3 tarjetas de métricas del Dashboard (Caja Chica,
+// Ahorro, Neto): fuente única para que Inicio los use tal cual.
+export const CAJA_CHICA_GRADIENT = ["#00A3FF", "#0077C2"] as const;
+export const AHORRO_GRADIENT = ["#FF6B8B", "#FF4757"] as const;
+export const NETO_GRADIENT = ["#00C9A7", "#00A86B"] as const;
+// Colores de acento de las barras de PRESUPUESTO (Vital/Secundario).
+export const BUDGET_VITAL_COLOR = "#1FB6B6";
+export const BUDGET_SECO_COLOR = "#E14E7A";
 export const FONTS = {
   regular: "Nunito",
   medium: "Nunito-SemiBold",
