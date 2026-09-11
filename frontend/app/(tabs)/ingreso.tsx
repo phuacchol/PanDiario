@@ -6,10 +6,11 @@ import { TopBar } from "@/src/components/TopBar";
 import { EmptyState } from "@/src/components/Mascot";
 import { Button, Field, Segmented, ChipRow, InputPrompt } from "@/src/components/ui";
 import { CategoryAutocomplete } from "@/src/components/CategoryAutocomplete";
+import { TransactionCard, INGRESO_HEADER_COLOR } from "@/src/components/TransactionCard";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useData, type Transaction, type Method } from "@/src/context/DataContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
-import { formatMoney, formatLocalDate, formatLocalTime } from "@/src/utils/format";
+import { formatMoney } from "@/src/utils/format";
 
 export default function IngresoScreen() {
   const { colors } = useTheme();
@@ -127,22 +128,15 @@ export default function IngresoScreen() {
         contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.sm }}
         ListEmptyComponent={<EmptyState variant="box" title="Sin ingresos" subtitle="Registra el primero con el botón + o dilo por voz." />}
         renderItem={({ item }) => (
-          <View style={[styles.txRow, { backgroundColor: colors.surfaceSecondary, borderLeftColor: colors.success, borderLeftWidth: 4 }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.txCategory, { color: colors.onSurface }]}>{item.category || "Otros"}</Text>
-              <Text style={[styles.txMeta, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>
-                {formatLocalDate(item.created_at)} · {formatLocalTime(item.created_at)} · {item.method === "mixto" ? "Mixto" : item.method === "transferencia" ? "Transferencia" : "Efectivo"}
-                {item.note ? ` · ${item.note}` : ""}
-              </Text>
-            </View>
-            <Text style={[styles.txAmount, { color: colors.success }]}>+{formatMoney(item.amount, "PEN")}</Text>
-            <Pressable onPress={() => openEdit(item)} hitSlop={8} testID={`ingreso-edit-${item.id}`}>
-              <Feather name="edit-2" size={17} color={colors.onSurfaceTertiary} />
-            </Pressable>
-            <Pressable onPress={() => deleteTransaction(item.id)} hitSlop={8} testID={`ingreso-delete-${item.id}`}>
-              <Feather name="trash-2" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          </View>
+          <TransactionCard
+            transaction={item}
+            headerColor={INGRESO_HEADER_COLOR}
+            amountColor={colors.onSurface}
+            amountPrefix=""
+            onEdit={() => openEdit(item)}
+            onDelete={() => deleteTransaction(item.id)}
+            testIDPrefix="ingreso"
+          />
         )}
       />
 
@@ -208,10 +202,6 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, height: "100%" },
   addCatChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: SPACING.md, height: 32, borderRadius: RADIUS.pill },
   label: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, marginLeft: 2 },
-  txRow: { flexDirection: "row", alignItems: "center", gap: SPACING.md, padding: SPACING.md, borderRadius: RADIUS.md },
-  txCategory: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
-  txMeta: { fontFamily: FONTS.regular, fontSize: FONT_SIZE.xs, marginTop: 2 },
-  txAmount: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.base },
   fab: { position: "absolute", right: SPACING.lg, bottom: SPACING.xl, width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", elevation: 6, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
   backdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.5)", justifyContent: "flex-end" },
   sheet: { borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.xl, maxHeight: "85%" },
