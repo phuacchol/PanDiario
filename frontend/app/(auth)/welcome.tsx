@@ -18,7 +18,7 @@ export default function Welcome() {
 
   return (
     <BicolorCurveBackground>
-      <View style={[styles.topContent, { paddingTop: insets.top + 60 }]}>
+      <View style={[styles.topContent, { paddingTop: insets.top + 8 }]}>
         <Image
           source={PAN_ASSETS.logoText}
           style={styles.logo}
@@ -66,7 +66,7 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   topContent: { alignItems: "center" },
-  logo: { width: 220, height: 90 },
+  logo: { width: 880, height: 360 },
   mascot: { position: "absolute", left: SCREEN_W / 2 - MASCOT_SIZE / 2, width: MASCOT_SIZE, height: MASCOT_SIZE },
   bottomContent: {
     position: "absolute",
@@ -74,11 +74,11 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: SPACING.xl,
-    paddingTop: 110,
+    paddingTop: 70,
     justifyContent: "space-between",
   },
   title: {
-    fontFamily: FONTS.bold,
+    fontFamily: FONTS.black,
     fontSize: FONT_SIZE["3xl"],
     fontWeight: "700",
     textAlign: "center",
@@ -86,7 +86,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   subtitle: {
-    fontFamily: FONTS.medium,
+    fontFamily: FONTS.bold,
     fontSize: FONT_SIZE.lg,
     textAlign: "center",
     color: "#475569",

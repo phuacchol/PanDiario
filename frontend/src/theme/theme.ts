@@ -86,17 +86,17 @@ export const NETO_GRADIENT = ["#00C9A7", "#00A86B"] as const;
 // Colores de acento de las barras de PRESUPUESTO (Vital/Secundario).
 export const BUDGET_VITAL_COLOR = "#1FB6B6";
 export const BUDGET_SECO_COLOR = "#E14E7A";
-// Franja superior de las tarjetas de Gasto: mismo color por origen del
-// dinero que ya usan Caja Chica/Ahorro (tarjetas de Inicio) y Vital/Secundario
-// (barras de PRESUPUESTO de Inicio) -una sola fuente de verdad para los 4-.
-// origin "cuenta" (Cuenta Actual, sin franja propia) no tiene entrada aquí:
-// TransactionCard usa colors.warning como respaldo, igual que la regla
-// anterior de bordes por origen.
+// Fondo celeste de los botones/píldoras VITAL y SECUN de PRESUPUESTO.
+export const BUDGET_PILL_BG = "#CFEFFB";
+// Franja superior de las tarjetas de Gasto/Ingreso: color fijo por origen
+// del dinero, independiente de los degradados del Dashboard (Caja Chica/
+// Ahorro/Vital/Secundario arriba) para no alterar esas tarjetas de Inicio.
 export const ORIGIN_HEADER_COLORS = {
-  caja_chica: CAJA_CHICA_GRADIENT[0],
-  ahorro: AHORRO_GRADIENT[0],
-  vital: BUDGET_VITAL_COLOR,
-  secundario: BUDGET_SECO_COLOR,
+  vital: "#22C55E",
+  secundario: "#22C55E",
+  cuenta: "#F1C40F",
+  caja_chica: "#F39C12",
+  ahorro: "#E74C3C",
 } as const;
 
 // Deriva un color estable de una paleta a partir de un id (mismo id -> mismo

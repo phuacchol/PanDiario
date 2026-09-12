@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { AppState, DeviceEventEmitter } from "react-native";
 import { getDb, openFreshReadConnection } from "@/src/utils/localDb";
 import { cancelReminder, scheduleReminder } from "@/src/utils/notifications";
 import { computeCycleLabel, daysUntil, splitSavingsFromWallet } from "@/src/utils/financeHelpers";
+import { useAuth } from "@/src/context/AuthContext";
 
 export { computeCycleLabel, daysUntil };
 
@@ -19,6 +20,8 @@ export type Wallet = {
   carteraDigital: number;
   cajaChica: number;
   ahorro: number;
+  targetAhorro: number;
+  targetCajaChica: number;
   lastSalary: number;
   cycleStart: string;
   nextPaymentDate: string | null;
@@ -114,19 +117,23 @@ export type ListEntry = {
 // Categorías base predeterminadas de la Calculadora de Presupuesto,
 // sembradas una sola vez en cuentas nuevas (ver ensureBootstrap).
 const DEFAULT_VITAL_CATEGORIES = [
-  "Alimentación / Mercado",
   "Vivienda / Alquiler",
-  "Servicios básicos (Luz, Agua, Gas)",
+  "Servicios básicos (Luz, Agua, Gas, Internet)",
+  "Alimentación / Supermercado",
   "Transporte",
   "Salud / Medicinas",
   "Educación",
+  "Deudas obligatorias",
 ];
 const DEFAULT_SECUNDARIO_CATEGORIES = [
-  "Entretenimiento / Salidas",
+  "Restaurantes / Salidas",
+  "Entretenimiento",
+  "Suscripciones / Streaming",
   "Ropa y Calzado",
-  "Suscripciones digitales",
-  "Cuidado personal",
-  "Varios / Imprevistos",
+  "Cuidado Personal",
+  "Gimnasio / Deportes",
+  "Hobbies",
+  "Otros",
 ];
 
 function newId(prefix: string): string {
@@ -142,6 +149,8 @@ const EMPTY_WALLET: Wallet = {
   carteraDigital: 0,
   cajaChica: 0,
   ahorro: 0,
+  targetAhorro: 0,
+  targetCajaChica: 0,
   lastSalary: 0,
   cycleStart: todayISO(),
   nextPaymentDate: null,
@@ -168,6 +177,7 @@ type DataCtx = {
   deleteTransaction: (id: string) => Promise<void>;
 
   addSavings: (amount: number) => Promise<void>;
+  updateGoals: (p: { targetAhorro?: number; targetCajaChica?: number }) => Promise<void>;
 
   registerSalary: (p: {
     amount: number;
@@ -211,6 +221,8 @@ function mapWalletRow(row: any): Wallet {
     carteraDigital: Number(row.cartera_digital) || 0,
     cajaChica: Number(row.caja_chica) || 0,
     ahorro: Number(row.ahorro) || 0,
+    targetAhorro: Number(row.target_ahorro) || 0,
+    targetCajaChica: Number(row.target_caja_chica) || 0,
     lastSalary: Number(row.last_salary) || 0,
     cycleStart: row.cycle_start || todayISO(),
     nextPaymentDate: row.next_payment_date || null,
@@ -278,9 +290,9 @@ function mapList(row: any): ListRecord {
 // "parpadeo y desaparición" reportado al registrar por voz-. Devuelve
 // undefined en vez de [] cuando la consulta falla, para que el caller
 // pueda dejar el estado actual intacto en vez de reemplazarlo por vacío.
-async function safeSelectAll<T>(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, sql: string): Promise<T[] | undefined> {
+async function safeSelectAll<T>(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, sql: string, params: any[] = []): Promise<T[] | undefined> {
   try {
-    return await db.getAllAsync<T>(sql);
+    return await db.getAllAsync<T>(sql, params);
   } catch {
     return undefined;
   }
@@ -298,6 +310,17 @@ function mapListEntry(row: any): ListEntry {
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const userId = user?.id || null;
+  // Ref con el mismo valor que `userId`: los callbacks de escritura
+  // (addIncome, addExpense, etc.) la leen en vez de cerrar sobre `userId`
+  // directamente, así no hace falta añadir userId a las dependencias de
+  // cada useCallback ni recrearlos en cada cambio de usuario -evita
+  // handlers "viejos" (con un userId obsoleto) atrapados en closures ya
+  // entregadas a componentes hijos entre un render y el siguiente.
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
   const [wallet, setWallet] = useState<Wallet>(EMPTY_WALLET);
   const [openCycleId, setOpenCycleId] = useState<string | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
@@ -310,7 +333,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // Garantiza que exista la fila singleton de wallet y un ciclo abierto;
   // se ejecuta una sola vez, en la primera carga de la app.
-  const ensureBootstrap = useCallback(async (db: NonNullable<Awaited<ReturnType<typeof getDb>>>) => {
+  const ensureBootstrap = useCallback(async (db: NonNullable<Awaited<ReturnType<typeof getDb>>>, uid: string) => {
     // Distingue "la fila no existe todavía" (cuenta recién creada, hay que
     // sembrar una wallet en cero) de "la consulta falló" (ej. SQLITE_BUSY
     // por contención momentánea con la conexión nativa del overlay -ver
@@ -324,7 +347,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     let walletRow: any = null;
     let readFailed = false;
     try {
-      walletRow = await db.getFirstAsync<any>(`SELECT * FROM wallet WHERE id = 'main'`);
+      walletRow = await db.getFirstAsync<any>(`SELECT * FROM wallet WHERE user_id = ?`, [uid]);
     } catch {
       readFailed = true;
     }
@@ -333,11 +356,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (!walletRow) {
       const now = todayISO();
       await db.runAsync(
-        `INSERT INTO wallet (id, cartera_efectivo, cartera_digital, caja_chica, ahorro, last_salary, cycle_start, next_payment_date)
-         VALUES ('main', 0, 0, 0, 0, 0, ?, NULL)`,
-        [now]
+        `INSERT INTO wallet (id, user_id, cartera_efectivo, cartera_digital, caja_chica, ahorro, last_salary, cycle_start, next_payment_date)
+         VALUES (?, ?, 0, 0, 0, 0, 0, ?, NULL)`,
+        [`main_${uid}`, uid, now]
       ).catch(() => {});
-      walletRow = await db.getFirstAsync<any>(`SELECT * FROM wallet WHERE id = 'main'`).catch(() => null);
+      walletRow = await db.getFirstAsync<any>(`SELECT * FROM wallet WHERE user_id = ?`, [uid]).catch(() => null);
     }
 
     // Mismo bug que ya se había corregido arriba para la wallet, pero acá
@@ -356,7 +379,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     let openCycleReadFailed = false;
     let openCycle: any = null;
     try {
-      openCycle = await db.getFirstAsync<any>(`SELECT * FROM cycles WHERE end_date IS NULL ORDER BY start_date DESC LIMIT 1`);
+      openCycle = await db.getFirstAsync<any>(`SELECT * FROM cycles WHERE end_date IS NULL AND user_id = ? ORDER BY start_date DESC LIMIT 1`, [uid]);
     } catch {
       openCycleReadFailed = true;
     }
@@ -366,9 +389,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const id = newId("cycle");
       const now = todayISO();
       await db.runAsync(
-        `INSERT INTO cycles (id, start_date, end_date, label, caja_chica_snapshot, ahorro_snapshot, resto_caja, salary_amount, created_at)
-         VALUES (?, ?, NULL, '', 0, 0, 0, 0, ?)`,
-        [id, walletRow?.cycle_start || now, now]
+        `INSERT INTO cycles (id, user_id, start_date, end_date, label, caja_chica_snapshot, ahorro_snapshot, resto_caja, salary_amount, created_at)
+         VALUES (?, ?, ?, NULL, '', 0, 0, 0, 0, ?)`,
+        [id, uid, walletRow?.cycle_start || now, now]
       ).catch(() => {});
       openCycle = await db.getFirstAsync<any>(`SELECT * FROM cycles WHERE id = ?`, [id]).catch(() => null);
     }
@@ -381,17 +404,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // error transitorio de lectura-.
     let categoryCountRow: any = null;
     try {
-      categoryCountRow = await db.getFirstAsync<any>(`SELECT COUNT(*) as n FROM budget_categories`);
+      categoryCountRow = await db.getFirstAsync<any>(`SELECT COUNT(*) as n FROM budget_categories WHERE user_id = ?`, [uid]);
     } catch {
       categoryCountRow = undefined; // undefined = no se pudo leer; null = distinto de "falló"
     }
     if (categoryCountRow !== undefined && (!categoryCountRow || Number(categoryCountRow.n) === 0)) {
       const now = todayISO();
       for (const name of DEFAULT_VITAL_CATEGORIES) {
-        await db.runAsync(`INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, 'vital', ?, 0, ?)`, [newId("cat"), name, now]).catch(() => {});
+        await db.runAsync(`INSERT INTO budget_categories (id, user_id, type, name, amount, created_at) VALUES (?, ?, 'vital', ?, 0, ?)`, [newId("cat"), uid, name, now]).catch(() => {});
       }
       for (const name of DEFAULT_SECUNDARIO_CATEGORIES) {
-        await db.runAsync(`INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, 'secundario', ?, 0, ?)`, [newId("cat"), name, now]).catch(() => {});
+        await db.runAsync(`INSERT INTO budget_categories (id, user_id, type, name, amount, created_at) VALUES (?, ?, 'secundario', ?, 0, ?)`, [newId("cat"), uid, name, now]).catch(() => {});
       }
     }
 
@@ -410,13 +433,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // usuario la renombre después.
   const ensureBudgetCategoryId = useCallback(
     async (db: NonNullable<Awaited<ReturnType<typeof getDb>>>, type: BudgetType, name: string): Promise<string | null> => {
+      const uid = userIdRef.current;
+      if (!uid) return null;
       const clean = (name || "").trim();
       if (!clean) return null;
-      const existing = await db.getFirstAsync<any>(`SELECT id FROM budget_categories WHERE type = ? AND name = ?`, [type, clean]).catch(() => null);
+      const existing = await db.getFirstAsync<any>(`SELECT id FROM budget_categories WHERE user_id = ? AND type = ? AND name = ?`, [uid, type, clean]).catch(() => null);
       if (existing) return existing.id;
       const id = newId("cat");
       const now = todayISO();
-      await db.runAsync(`INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, ?, ?, 0, ?)`, [id, type, clean, now]).catch(() => {});
+      await db.runAsync(`INSERT INTO budget_categories (id, user_id, type, name, amount, created_at) VALUES (?, ?, ?, ?, 0, ?)`, [id, uid, type, clean, now]).catch(() => {});
       setBudgetCategories((prev) => (prev.some((c) => c.id === id) ? prev : [...prev, { id, type, name: clean, amount: 0, created_at: now }]));
       return id;
     },
@@ -439,6 +464,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // (dbInstance/getDb, usada por addIncome/addExpense/etc.) no cambia:
   // eso nunca falló -lo registrado siempre sobrevivió a un reinicio-.
   const refresh = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!uid) {
+      // Sin sesión activa: no hay de quién leer. Deja el estado en blanco
+      // en vez de mostrar lo último cargado (que sería de la cuenta
+      // anterior, si la hubo).
+      setLoading(false);
+      return;
+    }
     const db = await openFreshReadConnection();
     if (!db) {
       setLoading(false);
@@ -446,7 +479,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const { walletRow, openCycle, ok } = await ensureBootstrap(db);
+      const { walletRow, openCycle, ok } = await ensureBootstrap(db, uid);
       if (!ok) {
         // Lectura inicial fallida (ej. SQLITE_BUSY momentáneo mientras el
         // overlay nativo escribe): se aborta sin tocar el estado en
@@ -459,23 +492,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setWallet(mapWalletRow(walletRow));
       setOpenCycleId(openCycle?.id || null);
 
-      const cycleRows = await safeSelectAll<any>(db, `SELECT * FROM cycles ORDER BY start_date DESC`);
+      const cycleRows = await safeSelectAll<any>(db, `SELECT * FROM cycles WHERE user_id = ? ORDER BY start_date DESC`, [uid]);
       if (cycleRows !== undefined) setCycles(cycleRows);
 
-      const budgetRows = await safeSelectAll<any>(db, `SELECT * FROM budget_categories ORDER BY created_at ASC`);
+      const budgetRows = await safeSelectAll<any>(db, `SELECT * FROM budget_categories WHERE user_id = ? ORDER BY created_at ASC`, [uid]);
       if (budgetRows !== undefined) setBudgetCategories(budgetRows);
 
-      const txRows = await safeSelectAll<any>(db, `SELECT * FROM transactions ORDER BY created_at DESC`);
+      const txRows = await safeSelectAll<any>(db, `SELECT * FROM transactions WHERE user_id = ? ORDER BY created_at DESC`, [uid]);
       if (txRows !== undefined) setTransactions(txRows.map(mapTx));
 
-      const noteRows = await safeSelectAll<any>(db, `SELECT * FROM notes ORDER BY created_at DESC`);
+      const noteRows = await safeSelectAll<any>(db, `SELECT * FROM notes WHERE user_id = ? ORDER BY created_at DESC`, [uid]);
       if (noteRows !== undefined) setNotes(noteRows.map(mapNote));
 
-      const listRows = await safeSelectAll<any>(db, `SELECT * FROM lists ORDER BY created_at DESC`);
+      const listRows = await safeSelectAll<any>(db, `SELECT * FROM lists WHERE user_id = ? ORDER BY created_at DESC`, [uid]);
       if (listRows !== undefined) setLists(listRows.map(mapList));
 
+      // list_entries se aísla vía su list_id (ya filtrada por user_id
+      // arriba), no necesita su propia columna: se filtra en memoria contra
+      // los ids de `listRows` ya restringidos al usuario activo.
+      const ownListIds = new Set((listRows || []).map((l: any) => l.id));
       const entryRows = await safeSelectAll<any>(db, `SELECT * FROM list_entries ORDER BY created_at DESC`);
-      if (entryRows !== undefined) setListEntries(entryRows.map(mapListEntry));
+      if (entryRows !== undefined) setListEntries(entryRows.filter((e: any) => ownListIds.has(e.list_id)).map(mapListEntry));
 
       setLoading(false);
     } finally {
@@ -483,9 +520,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [ensureBootstrap]);
 
+  // Al cambiar de usuario (login, logout, cambio de cuenta) limpia el
+  // estado en memoria de inmediato -antes de que el refresh async
+  // termine- para que nunca se vea, ni por un instante, el saldo/historial
+  // de la cuenta anterior mientras carga la nueva.
   useEffect(() => {
+    setWallet(EMPTY_WALLET);
+    setOpenCycleId(null);
+    setCycles([]);
+    setBudgetCategories([]);
+    setTransactions([]);
+    setNotes([]);
+    setLists([]);
+    setListEntries([]);
+    setLoading(true);
     refresh();
-  }, [refresh]);
+  }, [userId, refresh]);
 
   // Sincronización reactiva con el panel flotante nativo: cada escritura
   // de PanDb.kt (Ingreso/Gasto/Nota/Lista/liquidación desde la burbuja)
@@ -533,11 +583,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const persistWallet = useCallback(async (w: Wallet) => {
+    const uid = userIdRef.current;
+    if (!uid) return;
     const db = await getDb();
     if (!db) return;
     await db.runAsync(
-      `UPDATE wallet SET cartera_efectivo = ?, cartera_digital = ?, caja_chica = ?, ahorro = ?, last_salary = ?, cycle_start = ?, next_payment_date = ? WHERE id = 'main'`,
-      [w.carteraEfectivo, w.carteraDigital, w.cajaChica, w.ahorro, w.lastSalary, w.cycleStart, w.nextPaymentDate]
+      `UPDATE wallet SET cartera_efectivo = ?, cartera_digital = ?, caja_chica = ?, ahorro = ?, target_ahorro = ?, target_caja_chica = ?, last_salary = ?, cycle_start = ?, next_payment_date = ? WHERE user_id = ?`,
+      [w.carteraEfectivo, w.carteraDigital, w.cajaChica, w.ahorro, w.targetAhorro, w.targetCajaChica, w.lastSalary, w.cycleStart, w.nextPaymentDate, uid]
     ).catch(() => {});
   }, []);
 
@@ -602,8 +654,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const addIncome = useCallback(
     async (p: { amount: number; method: Method; cashAmount?: number; category?: string; note?: string; createdAt?: string }) => {
+      const uid = userIdRef.current;
       const amount = Number(p.amount) || 0;
-      if (amount <= 0 || !openCycleId) return;
+      if (amount <= 0 || !openCycleId || !uid) return;
       const now = p.createdAt || todayISO();
       const id = newId("tx");
       const category = p.category || "Otros";
@@ -624,8 +677,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
       if (db) {
         await db.runAsync(
-          `INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, ?, 'cuenta', ?, ?, ?)`,
-          [id, amount, p.method, cashAmount, category, categoryId, p.note || null, now, openCycleId]
+          `INSERT INTO transactions (id, user_id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, ?, 'ingreso', ?, ?, ?, ?, ?, 'cuenta', ?, ?, ?)`,
+          [id, uid, amount, p.method, cashAmount, category, categoryId, p.note || null, now, openCycleId]
         ).catch(() => {});
       }
     },
@@ -634,8 +687,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const addExpense = useCallback(
     async (p: { amount: number; method: Method; cashAmount?: number; category?: string; origin?: Origin; note?: string; createdAt?: string }) => {
+      const uid = userIdRef.current;
       const amount = Number(p.amount) || 0;
-      if (amount <= 0 || !openCycleId) return;
+      if (amount <= 0 || !openCycleId || !uid) return;
       const now = p.createdAt || todayISO();
       const id = newId("tx");
       const category = p.category || "Otros";
@@ -652,8 +706,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
       if (db) {
         await db.runAsync(
-          `INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [id, amount, p.method, cashAmount, category, categoryId, origin, p.note || null, now, openCycleId]
+          `INSERT INTO transactions (id, user_id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, ?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, uid, amount, p.method, cashAmount, category, categoryId, origin, p.note || null, now, openCycleId]
         ).catch(() => {});
       }
     },
@@ -741,10 +795,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [persistWallet]
   );
 
+  const updateGoals = useCallback(
+    async (p: { targetAhorro?: number; targetCajaChica?: number }) => {
+      setWallet((prev) => {
+        const next: Wallet = {
+          ...prev,
+          targetAhorro: p.targetAhorro !== undefined ? Math.max(0, Number(p.targetAhorro) || 0) : prev.targetAhorro,
+          targetCajaChica: p.targetCajaChica !== undefined ? Math.max(0, Number(p.targetCajaChica) || 0) : prev.targetCajaChica,
+        };
+        persistWallet(next);
+        return next;
+      });
+    },
+    [persistWallet]
+  );
+
   const registerSalary = useCallback(
     async (p: { amount: number; method: "efectivo" | "transferencia" | "mixto"; cashAmount?: number; nextPaymentDate: string }) => {
+      const uid = userIdRef.current;
       const amount = Number(p.amount) || 0;
-      if (amount <= 0 || !openCycleId) return;
+      if (amount <= 0 || !openCycleId || !uid) return;
       const now = todayISO();
       const db = await getDb();
 
@@ -772,6 +842,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           carteraDigital,
           cajaChica: prev.cajaChica + resto,
           ahorro: prev.ahorro,
+          targetAhorro: prev.targetAhorro,
+          targetCajaChica: prev.targetCajaChica,
           lastSalary: amount,
           cycleStart: now,
           nextPaymentDate: p.nextPaymentDate,
@@ -804,9 +876,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
           const newCycleId = newId("cycle");
           await db.runAsync(
-            `INSERT INTO cycles (id, start_date, end_date, label, caja_chica_snapshot, ahorro_snapshot, resto_caja, salary_amount, created_at)
-             VALUES (?, ?, NULL, '', 0, 0, 0, 0, ?)`,
-            [newCycleId, now, now]
+            `INSERT INTO cycles (id, user_id, start_date, end_date, label, caja_chica_snapshot, ahorro_snapshot, resto_caja, salary_amount, created_at)
+             VALUES (?, ?, ?, NULL, '', 0, 0, 0, 0, ?)`,
+            [newCycleId, uid, now, now]
           ).catch(() => {});
 
           setOpenCycleId(newCycleId);
@@ -820,8 +892,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addBudgetCategory = useCallback(async (p: { type: BudgetType; name: string; amount: number }) => {
+    const uid = userIdRef.current;
     const name = (p.name || "").trim();
-    if (!name) return;
+    if (!name || !uid) return;
     const id = newId("cat");
     const now = todayISO();
     const amount = Number(p.amount) || 0;
@@ -831,8 +904,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const db = await getDb();
     if (db) {
       await db.runAsync(
-        `INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, ?, ?, ?, ?)`,
-        [id, p.type, name, amount, now]
+        `INSERT INTO budget_categories (id, user_id, type, name, amount, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, uid, p.type, name, amount, now]
       ).catch(() => {});
     }
   }, []);
@@ -860,8 +933,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const addNote = useCallback(
     async (p: { subject?: string; text: string; isReminder?: boolean; remindAt?: string | null; leadMinutes?: number }) => {
+      const uid = userIdRef.current;
       const text = (p.text || "").trim();
-      if (!text) return;
+      if (!text || !uid) return;
       const id = newId("note");
       const now = todayISO();
       const subject = (p.subject || "").trim();
@@ -892,9 +966,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO notes (id, subject, text, pinned, is_reminder, remind_at, lead_minutes, notification_id, done, created_at, cycle_id)
-           VALUES (?, ?, ?, 0, ?, ?, ?, ?, 0, ?, ?)`,
-          [id, subject, text, isReminder ? 1 : 0, newNote.remind_at, leadMinutes, notificationId, now, openCycleId]
+          `INSERT INTO notes (id, user_id, subject, text, pinned, is_reminder, remind_at, lead_minutes, notification_id, done, created_at, cycle_id)
+           VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 0, ?, ?)`,
+          [id, uid, subject, text, isReminder ? 1 : 0, newNote.remind_at, leadMinutes, notificationId, now, openCycleId]
         ).catch(() => {});
       }
     },
@@ -974,8 +1048,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const addList = useCallback(
     async (p: { title: string; category?: string; isProgrammed?: boolean; scheduledAt?: string | null; leadMinutes?: number }) => {
+      const uid = userIdRef.current;
       const title = (p.title || "").trim();
-      if (!title) return "";
+      if (!title || !uid) return "";
       const id = newId("list");
       const now = todayISO();
       const isProgrammed = !!p.isProgrammed && !!p.scheduledAt;
@@ -1015,9 +1090,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const db = await getDb();
       if (db) {
         await db.runAsync(
-          `INSERT INTO lists (id, list_code, title, category, is_programmed, scheduled_at, lead_minutes, notification_id, status, created_at, cycle_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
-          [id, listCode, title, newList.category, isProgrammed ? 1 : 0, newList.scheduled_at, leadMinutes, notificationId, now, openCycleId]
+          `INSERT INTO lists (id, user_id, list_code, title, category, is_programmed, scheduled_at, lead_minutes, notification_id, status, created_at, cycle_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+          [id, uid, listCode, title, newList.category, isProgrammed ? 1 : 0, newList.scheduled_at, leadMinutes, notificationId, now, openCycleId]
         ).catch(() => {});
       }
       return id;
@@ -1161,6 +1236,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         updateTransaction,
         deleteTransaction,
         addSavings,
+        updateGoals,
         registerSalary,
         addBudgetCategory,
         updateBudgetCategoryAmount,

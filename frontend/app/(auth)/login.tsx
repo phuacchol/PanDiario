@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { View, Text, StyleSheet, Pressable, Modal, Alert } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -13,7 +12,7 @@ import { useAuth } from "@/src/context/AuthContext";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { api } from "@/src/api/client";
 import { getDb } from "@/src/utils/localDb";
-import { SPACING, RADIUS, FONTS, FONT_SIZE, WELCOME_GRADIENT } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 
 export default function Login() {
   const { colors } = useTheme();
@@ -146,24 +145,23 @@ export default function Login() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#8FA7D6" }}>
-      <LinearGradient colors={WELCOME_GRADIENT} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+    <View style={{ flex: 1, backgroundColor: "#F5F6FA" }}>
       <KeyboardAwareScrollView
         contentContainerStyle={{ paddingTop: insets.top + SPACING.sm, paddingBottom: insets.bottom + SPACING.xl, paddingHorizontal: SPACING.xl, flexGrow: 1 }}
         bottomOffset={20}
         keyboardShouldPersistTaps="handled"
       >
         <Pressable onPress={() => router.back()} style={styles.back} testID="login-back-button">
-          <Feather name="arrow-left" size={24} color="#FFFFFF" />
+          <Feather name="arrow-left" size={24} color={colors.onSurface} />
         </Pressable>
 
         <View style={styles.header}>
           <Image source={PAN_ASSETS.login} style={styles.mascot} contentFit="contain" testID="mascot-login" />
-          <Text style={styles.title}>¡Hola de nuevo!</Text>
-          <Text style={styles.subtitle}>Inicia sesión en PanConMiel</Text>
+          <Text style={[styles.title, { color: colors.onSurface }]}>¡Hola de nuevo!</Text>
+          <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>Inicia sesión en PanConMiel</Text>
         </View>
 
-        <View style={[styles.card, { backgroundColor: colors.surfaceSecondary }]}>
+        <View style={[styles.card, { backgroundColor: "#FFFFFF", borderRadius: 24 }]}>
           <Field
             label="Correo"
             icon="mail"
@@ -284,8 +282,8 @@ const styles = StyleSheet.create({
   back: { width: 44, height: 44, justifyContent: "center" },
   header: { alignItems: "center", gap: SPACING.xs, marginVertical: SPACING.lg },
   mascot: { width: 150, height: 150 },
-  title: { fontFamily: FONTS.bold, fontSize: FONT_SIZE["2xl"], fontWeight: "700", color: "#FFFFFF" },
-  subtitle: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, color: "rgba(255,255,255,0.85)" },
+  title: { fontFamily: FONTS.bold, fontSize: FONT_SIZE["2xl"], fontWeight: "700" },
+  subtitle: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base },
   card: { borderRadius: RADIUS.lg, padding: SPACING.xl, gap: SPACING.md, shadowColor: "#0F172A", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 20, elevation: 6 },
   error: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, textAlign: "center" },
   link: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.base, textAlign: "center", marginTop: SPACING.md },

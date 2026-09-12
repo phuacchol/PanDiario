@@ -61,6 +61,15 @@ export function BudgetCalculatorModal({
     setNewName("");
   };
 
+  // Evita que el input numérico concatene dígitos sobre el 0 inicial (ej.
+  // "0" + "1" -> "01" en vez de "1"): al enfocar/escribir sobre un cero
+  // solitario, el primer dígito lo reemplaza en vez de anteponerse.
+  const sanitizeAmountInput = (raw: string) => {
+    const cleaned = raw.replace(",", ".");
+    if (/^0+\d/.test(cleaned)) return cleaned.replace(/^0+/, "");
+    return cleaned;
+  };
+
   const commitDraft = (id: string) => {
     const raw = drafts[id];
     if (raw === undefined) return;
@@ -109,10 +118,11 @@ export function BudgetCalculatorModal({
                     <View style={[styles.amountWrap, { backgroundColor: colors.surfaceTertiary }]}>
                       <Text style={{ color: colors.onSurfaceTertiary, fontFamily: FONTS.bold, fontSize: FONT_SIZE.sm }}>{currencySymbol(user?.currency)}</Text>
                       <TextInput
-                        defaultValue={String(item.amount)}
+                        value={drafts[item.id] !== undefined ? drafts[item.id] : String(item.amount)}
                         keyboardType="decimal-pad"
                         style={[styles.amountInput, { color: colors.onSurface }]}
-                        onChangeText={(v) => setDrafts((d) => ({ ...d, [item.id]: v }))}
+                        onChangeText={(v) => setDrafts((d) => ({ ...d, [item.id]: sanitizeAmountInput(v) }))}
+                        onFocus={() => setDrafts((d) => (d[item.id] !== undefined ? d : { ...d, [item.id]: item.amount === 0 ? "" : String(item.amount) }))}
                         onBlur={() => commitDraft(item.id)}
                         onSubmitEditing={() => commitDraft(item.id)}
                         testID={`budget-cat-amount-${item.id}`}

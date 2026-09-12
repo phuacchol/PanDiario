@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { withAndroidManifest, withMainApplication, withMainActivity, withDangerousMod, AndroidConfig } = require("@expo/config-plugins");
+const { withAndroidManifest, withMainApplication, withMainActivity, withDangerousMod, withAppBuildGradle, AndroidConfig } = require("@expo/config-plugins");
 
 const SERVICE_NAME = ".overlay.OverlayBubbleService";
 const FLOATING_ALIAS_NAME = ".overlay.FloatingDialogAlias";
@@ -235,6 +235,26 @@ function withOverlayBubbleFloatingTheme(config) {
   ]);
 }
 
+// Windows tiene un límite de ~260 caracteres por ruta de archivo. La ruta
+// del proyecto (C:\Users\...\PanDiario\frontend) ya es larga de por sí, y
+// los .o generados por CMake para módulos con nombres largos (p.ej.
+// react-native-keyboard-controller) la superan y el build falla con
+// "ninja: error: ... Filename longer than 260 characters". Redirigir la
+// carpeta de compilación nativa (.cxx) a una ruta corta fija evita el
+// problema sin tocar la ubicación real del proyecto ni requerir permisos
+// de administrador (LongPathsEnabled).
+function withShortCmakeStagingDir(config) {
+  return withAppBuildGradle(config, (config) => {
+    if (!config.modResults.contents.includes("buildStagingDirectory")) {
+      config.modResults.contents = config.modResults.contents.replace(
+        "android {",
+        `android {\n    externalNativeBuild {\n        cmake {\n            buildStagingDirectory file("C:/ndkbuild/pandiario")\n        }\n    }\n`
+      );
+    }
+    return config;
+  });
+}
+
 module.exports = function withOverlayBubble(config) {
   config = withOverlayBubbleManifest(config);
   config = withOverlayBubbleMainApplication(config);
@@ -243,5 +263,6 @@ module.exports = function withOverlayBubble(config) {
   config = withOverlayBubbleIcon(config);
   config = withOverlayBubbleModalMascots(config);
   config = withOverlayBubbleFloatingTheme(config);
+  config = withShortCmakeStagingDir(config);
   return config;
 };

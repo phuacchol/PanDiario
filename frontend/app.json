@@ -42,9 +42,9 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/pandiario/pan-logo-letras.png",
-          "imageWidth": 220,
+          "imageWidth": 240,
           "resizeMode": "contain",
-          "backgroundColor": "#8FA7D6"
+          "backgroundColor": "#6381e9"
         }
       ],
       [

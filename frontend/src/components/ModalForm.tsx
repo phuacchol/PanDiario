@@ -1,4 +1,5 @@
-import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, TextInputProps, ViewStyle, StyleProp, ImageSourcePropType } from "react-native";
+import { useState } from "react";
+import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, Keyboard, TextInputProps, ViewStyle, StyleProp, ImageSourcePropType } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -50,6 +51,7 @@ export function ModalFormField({
   multiline,
   style,
   containerStyle,
+  errorText,
   ...props
 }: TextInputProps & {
   label?: string;
@@ -58,11 +60,15 @@ export function ModalFormField({
   // para los campos de Monto -mutuamente excluyente con `icon`-.
   prefixText?: string;
   containerStyle?: StyleProp<ViewStyle>;
+  // Mensaje de validación: cuando está presente pinta el borde en rojo y
+  // muestra el texto debajo, para que un guardado bloqueado sea visible
+  // (antes fallaba en silencio, sin ninguna señal para el usuario).
+  errorText?: string;
 }) {
   return (
     <View style={[{ gap: SPACING.xs }, containerStyle]}>
       {label ? <Text style={fieldStyles.label}>{label}</Text> : null}
-      <View style={[fieldStyles.wrap, multiline && fieldStyles.wrapMultiline]}>
+      <View style={[fieldStyles.wrap, multiline && fieldStyles.wrapMultiline, errorText && fieldStyles.wrapError]}>
         {prefixText ? <Text style={fieldStyles.prefixText}>{prefixText}</Text> : icon ? <Feather name={icon} size={18} color="#4A72FF" /> : null}
         <TextInput
           placeholderTextColor={SUBTLE}
@@ -71,6 +77,62 @@ export function ModalFormField({
           {...props}
         />
       </View>
+      {errorText ? <Text style={fieldStyles.errorText}>{errorText}</Text> : null}
+    </View>
+  );
+}
+
+// Campo de Categoría con autocompletado: bajo el input aparecen las
+// categorías existentes que coinciden con lo tecleado (chips, un toque las
+// aplica). Sigue siendo texto libre -si no hay coincidencia el usuario
+// puede guardar un nombre nuevo igual que antes-.
+export function ModalFormCategoryField({
+  value,
+  onChangeText,
+  suggestions,
+  testID,
+}: {
+  value: string;
+  onChangeText: (v: string) => void;
+  suggestions: string[];
+  testID?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  const q = value.trim().toLowerCase();
+  const filtered = (q ? suggestions.filter((s) => s.toLowerCase().includes(q) && s.toLowerCase() !== q) : suggestions).slice(0, 6);
+
+  return (
+    <View style={{ gap: SPACING.xs }}>
+      <ModalFormField
+        label="Categoría"
+        icon="tag"
+        placeholder="Otros"
+        value={value}
+        onChangeText={onChangeText}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        testID={testID}
+      />
+      {focused && filtered.length > 0 ? (
+        <View style={catSuggestStyles.wrap}>
+          {filtered.map((name) => (
+            <Pressable
+              key={name}
+              onPress={() => {
+                onChangeText(name);
+                Keyboard.dismiss();
+                setFocused(false);
+              }}
+              style={catSuggestStyles.chip}
+              testID={testID ? `${testID}-suggestion-${name}` : undefined}
+            >
+              <Text style={catSuggestStyles.chipText} numberOfLines={1}>
+                {name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -125,7 +187,7 @@ export function ModalFormOriginGrid({ value, onChange, testID }: { value: Origin
         const cell = (
           <View style={originStyles.cellInner}>
             <View style={[originStyles.iconWrap, active && originStyles.iconWrapActive]}>
-              <Feather name={ORIGIN_ICONS[o.key]} size={18} color={active ? "#FFFFFF" : "#4A72FF"} />
+              <Feather name={ORIGIN_ICONS[o.key]} size={14} color={active ? "#FFFFFF" : "#4A72FF"} />
             </View>
             <Text style={[originStyles.cellText, { color: active ? "#FFFFFF" : "#334155" }]} numberOfLines={2}>
               {o.label}
@@ -217,14 +279,22 @@ const fieldStyles = StyleSheet.create({
     elevation: 1,
   },
   wrapMultiline: { borderRadius: RADIUS.lg, height: undefined, minHeight: 110, alignItems: "flex-start", paddingVertical: SPACING.sm },
+  wrapError: { borderColor: "#EF4444", borderWidth: 1.5 },
   input: { flex: 1, fontFamily: FONTS.medium, fontSize: FONT_SIZE.lg, height: "100%", color: INK },
   prefixText: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.lg, color: "#4A72FF" },
   inputMultiline: { height: undefined, minHeight: 96, textAlignVertical: "top" },
+  errorText: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, color: "#EF4444", marginLeft: 2 },
+});
+
+const catSuggestStyles = StyleSheet.create({
+  wrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  chip: { backgroundColor: TRACK, borderRadius: RADIUS.pill, paddingHorizontal: SPACING.md, paddingVertical: 6, maxWidth: 200 },
+  chipText: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, color: INK },
 });
 
 const segStyles = StyleSheet.create({
   track: { flexDirection: "row", borderRadius: RADIUS.lg, backgroundColor: TRACK, padding: 6, gap: 4 },
-  item: { flex: 1, alignItems: "center", justifyContent: "center", gap: 6, height: 76, borderRadius: RADIUS.md },
+  item: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4, height: 56, borderRadius: RADIUS.md },
   itemActive: {
     backgroundColor: "#FFFFFF",
     shadowColor: "#0F172A",
@@ -239,10 +309,10 @@ const segStyles = StyleSheet.create({
 const originStyles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: SPACING.sm },
   cellWrap: { width: "31%" },
-  cell: { borderRadius: RADIUS.md, minHeight: 84, alignItems: "center", justifyContent: "center", padding: SPACING.sm },
+  cell: { borderRadius: RADIUS.md, minHeight: 60, alignItems: "center", justifyContent: "center", padding: SPACING.xs },
   cellInactive: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: BORDER },
-  cellInner: { alignItems: "center", gap: 6 },
-  iconWrap: { width: 34, height: 34, borderRadius: RADIUS.pill, backgroundColor: "#EEF1FF", alignItems: "center", justifyContent: "center" },
+  cellInner: { alignItems: "center", gap: 3 },
+  iconWrap: { width: 26, height: 26, borderRadius: RADIUS.pill, backgroundColor: "#EEF1FF", alignItems: "center", justifyContent: "center" },
   iconWrapActive: { backgroundColor: "rgba(255,255,255,0.25)" },
   cellText: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, textAlign: "center" },
 });

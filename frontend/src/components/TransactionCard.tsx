@@ -17,6 +17,7 @@ export function TransactionCard({
   headerColor,
   amountColor,
   amountPrefix,
+  onPress,
   onEdit,
   onDelete,
   testIDPrefix,
@@ -25,6 +26,9 @@ export function TransactionCard({
   headerColor: string;
   amountColor: string;
   amountPrefix: "" | "-";
+  // Toca el cuerpo de la ficha (fuera de los botones): abre el detalle de
+  // solo lectura. La edición queda exclusivamente detrás del lápiz.
+  onPress?: () => void;
   onEdit: () => void;
   onDelete: () => void;
   testIDPrefix: string;
@@ -44,31 +48,31 @@ export function TransactionCard({
           <Feather name="check" size={13} color="#FFFFFF" />
         </View>
       </View>
-      <View style={[styles.body, { backgroundColor: colors.surfaceSecondary }]}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.amount, { color: amountColor }]}>
+      <Pressable
+        style={[styles.body, { backgroundColor: colors.surfaceSecondary }]}
+        onPress={onPress}
+        disabled={!onPress}
+        testID={`${testIDPrefix}-open-${transaction.id}`}
+      >
+        <View style={styles.leftCol}>
+          <Text style={[styles.amount, { color: amountColor }]} numberOfLines={1}>
             {amountPrefix}{formatMoney(transaction.amount, user?.currency)}
           </Text>
-          <Text style={[styles.method, { color: colors.onSurfaceTertiary }]}>{methodLabel}</Text>
-          <Text style={[styles.dateLine, { color: colors.onSurfaceTertiary }]}>{dateLabel}</Text>
-          <Text style={[styles.dateLine, { color: colors.onSurfaceTertiary }]}>{formatLocalTime(transaction.created_at)}</Text>
+          <Text style={[styles.method, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{methodLabel}</Text>
         </View>
-        <View style={styles.rightCol}>
-          {transaction.note ? (
-            <Text style={[styles.note, { color: colors.onSurfaceTertiary }]} numberOfLines={2}>
-              Nota: {transaction.note}
-            </Text>
-          ) : null}
-          <View style={styles.actions}>
-            <Pressable style={[styles.actionBtn, { backgroundColor: colors.brand }]} onPress={onEdit} hitSlop={8} testID={`${testIDPrefix}-edit-${transaction.id}`}>
-              <Feather name="edit-2" size={15} color="#FFFFFF" />
-            </Pressable>
-            <Pressable style={[styles.actionBtn, { backgroundColor: colors.error }]} onPress={onDelete} hitSlop={8} testID={`${testIDPrefix}-delete-${transaction.id}`}>
-              <Feather name="trash-2" size={15} color="#FFFFFF" />
-            </Pressable>
-          </View>
+        <View style={styles.centerCol}>
+          <Text style={[styles.dateLine, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{dateLabel}</Text>
+          <Text style={[styles.dateLine, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{formatLocalTime(transaction.created_at)}</Text>
         </View>
-      </View>
+        <View style={styles.actions}>
+          <Pressable style={[styles.actionBtn, { backgroundColor: colors.brand }]} onPress={onEdit} hitSlop={8} testID={`${testIDPrefix}-edit-${transaction.id}`}>
+            <Feather name="edit-2" size={15} color="#FFFFFF" />
+          </Pressable>
+          <Pressable style={[styles.actionBtn, { backgroundColor: colors.error }]} onPress={onDelete} hitSlop={8} testID={`${testIDPrefix}-delete-${transaction.id}`}>
+            <Feather name="trash-2" size={15} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </Pressable>
     </View>
   );
 }
@@ -96,15 +100,17 @@ const styles = StyleSheet.create({
   body: {
     borderRadius: RADIUS.lg,
     marginTop: -SPACING.lg,
-    padding: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     flexDirection: "row",
+    alignItems: "center",
     gap: SPACING.sm,
   },
-  amount: { fontFamily: FONTS.black, fontSize: FONT_SIZE.xl },
+  leftCol: { flexShrink: 0 },
+  amount: { fontFamily: FONTS.black, fontSize: FONT_SIZE.lg },
   method: { fontFamily: FONTS.bold, fontSize: FONT_SIZE.xs, marginTop: 2 },
-  dateLine: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, marginTop: 4 },
-  rightCol: { alignItems: "flex-end", justifyContent: "space-between", gap: SPACING.sm, maxWidth: 140 },
-  note: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, textAlign: "right" },
-  actions: { flexDirection: "row", gap: SPACING.sm },
+  centerCol: { flex: 1, alignItems: "center" },
+  dateLine: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs },
+  actions: { flexDirection: "row", gap: SPACING.sm, flexShrink: 0 },
   actionBtn: { width: 32, height: 32, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center" },
 });

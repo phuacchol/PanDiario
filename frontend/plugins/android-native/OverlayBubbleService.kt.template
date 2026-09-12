@@ -81,6 +81,21 @@ class OverlayBubbleService : Service() {
   private var currentView: View? = null
   private var currentParams: WindowManager.LayoutParams? = null
 
+  // Posición real de la burbuja, independiente de currentParams: ese campo
+  // se reutiliza como "lo que sea que esté mostrado ahora" (burbuja, menú,
+  // panel genérico o de ejecución de lista -ver los otros currentParams =
+  // lp más abajo-), así que en cuanto se abre cualquier diálogo nativo
+  // currentParams deja de apuntar a los LayoutParams de la burbuja. Antes
+  // showCollapsedBubble() leía currentParams?.x/y para restaurar la
+  // posición al volver a mostrarla, y terminaba leyendo la posición del
+  // diálogo recién cerrado (o el default 0,220dp) en vez de donde el
+  // usuario la había arrastrado -el salto a la esquina superior izquierda
+  // reportado-. Estos dos campos son la única fuente de verdad de "dónde
+  // quedó la burbuja la última vez", actualizados en cada arrastre/imán de
+  // borde, nunca pisados por otra ventana.
+  private var lastBubbleX = -1
+  private var lastBubbleY = -1
+
   // Todo lo que toca PanDb (open/transacción/checkpoint/close) es I/O de
   // disco síncrono; disparado directamente desde un click listener corría
   // en este mismo hilo -el principal del Service, compartido con el de la
@@ -275,8 +290,10 @@ class OverlayBubbleService : Service() {
       PixelFormat.TRANSLUCENT
     )
     lp.gravity = Gravity.TOP or Gravity.START
-    lp.x = currentParams?.x ?: 0
-    lp.y = currentParams?.y ?: dp(220)
+    lp.x = if (lastBubbleX >= 0) lastBubbleX else 0
+    lp.y = if (lastBubbleY >= 0) lastBubbleY else dp(220)
+    lastBubbleX = lp.x
+    lastBubbleY = lp.y
 
     attachDragAndClick(bubble, lp) { toggleMenu() }
 
@@ -323,13 +340,13 @@ class OverlayBubbleService : Service() {
     val bubble = currentParams ?: return
     val panel = buildMenuPanelView()
 
-    // Ancho compacto: antes 230dp dejaba un margen vacío visible a la
-    // derecha de opciones cortas como "Gasto"/"Notas". 196dp (dentro del
-    // rango 180-200dp pedido) se ajusta al contenido real sin dejar ese
-    // hueco, manteniendo el ancho fijo -más predecible para el cálculo de
-    // panelX/anchorBelow de abajo que un WRAP_CONTENT cuyo ancho final no
-    // se conoce hasta después de agregar la vista-.
-    val panelWidth = dp(196)
+    // Ancho compacto: antes 230dp (y luego 196dp) dejaban margen vacío
+    // visible a la derecha de opciones cortas como "Gasto"/"Notas". 180dp
+    // (dentro del rango 160-190dp pedido) se ajusta al contenido real sin
+    // dejar ese hueco, manteniendo el ancho fijo -más predecible para el
+    // cálculo de panelX/anchorBelow de abajo que un WRAP_CONTENT cuyo
+    // ancho final no se conoce hasta después de agregar la vista-.
+    val panelWidth = dp(180)
     val panelHeightEstimate = dp(300)
     val bubbleSize = dp(56)
     val screen = resources.displayMetrics
@@ -1308,7 +1325,7 @@ class OverlayBubbleService : Service() {
     "CLP" -> "$"
     "BRL" -> "R$"
     "BOB" -> "Bs"
-    "UYU" -> "$U"
+    "UYU" -> "\$U"
     "PYG" -> "₲"
     "VES" -> "Bs"
     "GTQ" -> "Q"
@@ -1508,6 +1525,8 @@ class OverlayBubbleService : Service() {
           // notificaciones y la burbuja queda inalcanzable-. Se aplica en
           // tiempo real durante el arrastre, no solo al soltar.
           lp.y = (initialY + dy).coerceAtLeast(minBubbleY())
+          lastBubbleX = lp.x
+          lastBubbleY = lp.y
           try {
             windowManager?.updateViewLayout(v, lp)
           } catch (_: Exception) {
@@ -1633,6 +1652,7 @@ class OverlayBubbleService : Service() {
     animator.duration = 220
     animator.addUpdateListener { anim ->
       lp.x = anim.animatedValue as Int
+      lastBubbleX = lp.x
       try { windowManager?.updateViewLayout(view, lp) } catch (_: Exception) {
       }
     }
@@ -1656,6 +1676,7 @@ class OverlayBubbleService : Service() {
     animator.duration = 220
     animator.addUpdateListener { anim ->
       lp.y = anim.animatedValue as Int
+      lastBubbleY = lp.y
       try { windowManager?.updateViewLayout(view, lp) } catch (_: Exception) {
       }
     }

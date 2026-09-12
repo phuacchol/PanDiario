@@ -9,12 +9,23 @@ import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useAuth } from "@/src/context/AuthContext";
 import { useData, daysUntil, type Cycle } from "@/src/context/DataContext";
 import { useTheme } from "@/src/theme/ThemeContext";
-import { SPACING, RADIUS, FONTS, FONT_SIZE, CAJA_CHICA_GRADIENT, AHORRO_GRADIENT, NETO_GRADIENT, BUDGET_VITAL_COLOR, BUDGET_SECO_COLOR } from "@/src/theme/theme";
+import { SPACING, RADIUS, FONTS, FONT_SIZE, CAJA_CHICA_GRADIENT, AHORRO_GRADIENT, NETO_GRADIENT, BUDGET_VITAL_COLOR, BUDGET_SECO_COLOR, BUDGET_PILL_BG } from "@/src/theme/theme";
 import { formatMoney, formatLocalDate, formatLocalTime } from "@/src/utils/format";
 import { AhorrarModal } from "@/src/components/home/AhorrarModal";
 import { PagaronModal, type SalaryMethod } from "@/src/components/home/PagaronModal";
 import { BudgetCalculatorModal } from "@/src/components/home/BudgetCalculatorModal";
 import { CierreDetailModal } from "@/src/components/home/CierreDetailModal";
+import { GoalsSection } from "@/src/components/home/GoalsSection";
+
+// Semáforo de las barras de PRESUPUESTO: arrancan en verde lima con el
+// 100% del cupo disponible y van bajando de color a medida que se gasta
+// -mismo umbral tanto para Vital como para Secundario-.
+function budgetSemaphoreColor(percent: number): string {
+  if (percent >= 60) return "#32CD32";
+  if (percent >= 30) return "#FBBF24";
+  if (percent >= 15) return "#F97316";
+  return "#EF4444";
+}
 
 export default function Home() {
   const { colors } = useTheme();
@@ -29,6 +40,7 @@ export default function Home() {
     notes,
     lists,
     addSavings,
+    updateGoals,
     registerSalary,
     addBudgetCategory,
     updateBudgetCategoryAmount,
@@ -81,6 +93,8 @@ export default function Home() {
   const secoAssigned = secoTotal + secoSpentCycle;
   const vitalPercent = vitalAssigned > 0 ? Math.max(0, Math.min(100, (vitalTotal / vitalAssigned) * 100)) : 0;
   const secoPercent = secoAssigned > 0 ? Math.max(0, Math.min(100, (secoTotal / secoAssigned) * 100)) : 0;
+  const vitalBarColor = budgetSemaphoreColor(vitalPercent);
+  const secoBarColor = budgetSemaphoreColor(secoPercent);
 
   const closedCycles = useMemo(() => cycles.filter((c) => !!c.end_date).sort((a, b) => (b.end_date || "").localeCompare(a.end_date || "")), [cycles]);
   const availableYears = useMemo(() => {
@@ -182,13 +196,12 @@ export default function Home() {
           <View style={styles.budgetHeader}>
             <Text style={[styles.budgetTitle, { color: colors.onSurface }]}>PRESUPUESTO</Text>
             <View style={styles.budgetCalcIcon}>
-              <Feather name="minus-circle" size={16} color={colors.onSurfaceTertiary} />
               <Text style={[styles.budgetTotal, { color: colors.onSurface }]}>TOTAL: {formatMoney(presupuestoTotal, user?.currency)}</Text>
             </View>
           </View>
           <View style={styles.budgetPillRow}>
             <Pressable
-              style={[styles.budgetPill, { backgroundColor: colors.surfaceTertiary }]}
+              style={[styles.budgetPill, { backgroundColor: BUDGET_PILL_BG }]}
               onPress={() => {
                 setBudgetInitialTab("vital");
                 setShowBudget(true);
@@ -205,11 +218,11 @@ export default function Home() {
                 <Feather name="edit-2" size={13} color={colors.onSurfaceTertiary} />
               </View>
               <View style={[styles.budgetProgressTrack, { backgroundColor: colors.border }]}>
-                <View style={[styles.budgetProgressFill, { width: `${vitalPercent}%`, backgroundColor: BUDGET_VITAL_COLOR }]} />
+                <View style={[styles.budgetProgressFill, { width: `${vitalPercent}%`, backgroundColor: vitalBarColor }]} />
               </View>
             </Pressable>
             <Pressable
-              style={[styles.budgetPill, { backgroundColor: colors.surfaceTertiary }]}
+              style={[styles.budgetPill, { backgroundColor: BUDGET_PILL_BG }]}
               onPress={() => {
                 setBudgetInitialTab("secundario");
                 setShowBudget(true);
@@ -221,12 +234,12 @@ export default function Home() {
                   <Feather name="slash" size={13} color={BUDGET_SECO_COLOR} />
                 </View>
                 <Text style={[styles.budgetPillText, { color: colors.onSurface }]} numberOfLines={1}>
-                  SECO: {formatMoney(secoTotal, user?.currency)}
+                  SECUN: {formatMoney(secoTotal, user?.currency)}
                 </Text>
                 <Feather name="edit-2" size={13} color={colors.onSurfaceTertiary} />
               </View>
               <View style={[styles.budgetProgressTrack, { backgroundColor: colors.border }]}>
-                <View style={[styles.budgetProgressFill, { width: `${secoPercent}%`, backgroundColor: BUDGET_SECO_COLOR }]} />
+                <View style={[styles.budgetProgressFill, { width: `${secoPercent}%`, backgroundColor: secoBarColor }]} />
               </View>
             </Pressable>
           </View>
@@ -251,6 +264,14 @@ export default function Home() {
           </LinearGradient>
         </View>
 
+        <GoalsSection
+          ahorro={wallet.ahorro}
+          cajaChica={wallet.cajaChica}
+          targetAhorro={wallet.targetAhorro}
+          targetCajaChica={wallet.targetCajaChica}
+          onSave={updateGoals}
+        />
+
         {/* Historial de Cierres */}
         <View style={{ gap: SPACING.md }}>
           <View style={styles.historyHeader}>
@@ -271,7 +292,7 @@ export default function Home() {
             </Text>
           ) : (
             yearCycles.map((cycle) => {
-              const total = cycle.caja_chica_snapshot + cycle.ahorro_snapshot;
+              const total = cycle.caja_chica_snapshot + cycle.ahorro_snapshot + cycle.resto_caja;
               const start = new Date(cycle.start_date);
               const end = new Date(cycle.end_date as string);
               const rangeLabel = `${String(start.getDate()).padStart(2, "0")}/${String(start.getMonth() + 1).padStart(2, "0")} al ${String(end.getDate()).padStart(2, "0")}/${String(end.getMonth() + 1).padStart(2, "0")}`;
@@ -280,14 +301,24 @@ export default function Home() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.cycleMonth, { color: colors.onSurface }]}>{(cycle.label || "").toUpperCase()}</Text>
                     <Text style={[styles.cycleRange, { color: colors.onSurfaceTertiary }]}>{rangeLabel}</Text>
-                    <Text style={[styles.cycleDetail, { color: colors.onSurfaceTertiary }]}>
-                      CAJA CHICA <Text style={{ color: colors.onSurface, fontFamily: FONTS.bold }}>{formatMoney(cycle.caja_chica_snapshot, user?.currency)}</Text>
-                      {"  "}AHORRO <Text style={{ color: colors.onSurface, fontFamily: FONTS.bold }}>{formatMoney(cycle.ahorro_snapshot, user?.currency)}</Text>
-                    </Text>
-                    <Text style={[styles.cycleDetail, { color: colors.onSurfaceTertiary }]}>
-                      RESTO DE CAJA <Text style={{ color: colors.success, fontFamily: FONTS.bold }}>+{formatMoney(cycle.resto_caja, user?.currency)}</Text>
-                      {"  "}TOTAL <Text style={{ color: colors.success, fontFamily: FONTS.bold }}>+{formatMoney(total, user?.currency)}</Text>
-                    </Text>
+                    <View style={styles.cycleStatsRow}>
+                      <View style={[styles.cycleStatBox, { backgroundColor: CAJA_CHICA_GRADIENT[0] + "22" }]}>
+                        <Text style={[styles.cycleStatLabel, { color: CAJA_CHICA_GRADIENT[1] }]} numberOfLines={1}>CAJA CHICA</Text>
+                        <Text style={[styles.cycleStatValue, { color: colors.onSurface }]} numberOfLines={1}>{formatMoney(cycle.caja_chica_snapshot, user?.currency)}</Text>
+                      </View>
+                      <View style={[styles.cycleStatBox, { backgroundColor: AHORRO_GRADIENT[0] + "22" }]}>
+                        <Text style={[styles.cycleStatLabel, { color: AHORRO_GRADIENT[1] }]} numberOfLines={1}>AHORRO</Text>
+                        <Text style={[styles.cycleStatValue, { color: colors.onSurface }]} numberOfLines={1}>{formatMoney(cycle.ahorro_snapshot, user?.currency)}</Text>
+                      </View>
+                      <View style={[styles.cycleStatBox, { backgroundColor: "#FEF9C3" }]}>
+                        <Text style={[styles.cycleStatLabel, { color: "#854D0E" }]} numberOfLines={1}>RESTO DE CAJA</Text>
+                        <Text style={[styles.cycleStatValue, { color: "#854D0E" }]} numberOfLines={1}>+{formatMoney(cycle.resto_caja, user?.currency)}</Text>
+                      </View>
+                      <View style={[styles.cycleStatBox, { backgroundColor: colors.success + "22" }]}>
+                        <Text style={[styles.cycleStatLabel, { color: colors.success }]} numberOfLines={1}>TOTAL</Text>
+                        <Text style={[styles.cycleStatValue, { color: colors.success }]} numberOfLines={1}>+{formatMoney(total, user?.currency)}</Text>
+                      </View>
+                    </View>
                   </View>
                   <Pressable onPress={() => deleteCycle(cycle.id)} hitSlop={8} testID={`home-cycle-delete-${cycle.id}`}>
                     <Feather name="trash-2" size={18} color={colors.error} />
@@ -418,7 +449,10 @@ const styles = StyleSheet.create({
   cycleCard: { flexDirection: "row", alignItems: "flex-start", gap: SPACING.md, padding: SPACING.md, borderRadius: RADIUS.md },
   cycleMonth: { fontFamily: FONTS.black, fontSize: FONT_SIZE.base },
   cycleRange: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, marginTop: 2 },
-  cycleDetail: { fontFamily: FONTS.medium, fontSize: FONT_SIZE.xs, marginTop: 4 },
+  cycleStatsRow: { flexDirection: "row", gap: 4, marginTop: 6 },
+  cycleStatBox: { flex: 1, borderRadius: RADIUS.sm, paddingVertical: 3, paddingHorizontal: 3, alignItems: "center", justifyContent: "center" },
+  cycleStatLabel: { fontFamily: FONTS.bold, fontSize: 7.5, letterSpacing: 0.2 },
+  cycleStatValue: { fontFamily: FONTS.bold, fontSize: 10, marginTop: 1 },
 
   yearBackdrop: { flex: 1, backgroundColor: "rgba(10,12,16,0.4)", alignItems: "center", justifyContent: "center" },
   yearSheet: { width: 160, maxHeight: 280, borderRadius: RADIUS.lg, paddingVertical: SPACING.sm },

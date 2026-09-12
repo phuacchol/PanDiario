@@ -45,7 +45,7 @@ export default function Register() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+    <View style={{ flex: 1, backgroundColor: "#F5F6FA" }}>
       <KeyboardAwareScrollView
         contentContainerStyle={{ paddingTop: insets.top + SPACING.sm, paddingBottom: insets.bottom + SPACING.xl, paddingHorizontal: SPACING.xl, flexGrow: 1 }}
         bottomOffset={20}
@@ -61,7 +61,7 @@ export default function Register() {
           <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>Bienvenido a tu rincón financiero dulce</Text>
         </View>
 
-        <View style={[styles.card, { backgroundColor: colors.surfaceSecondary }]}>
+        <View style={[styles.card, { backgroundColor: "#FFFFFF", borderRadius: 24 }]}>
           <Field label="Tu nombre" icon="user" placeholder="Nombre completo" value={name} onChangeText={setName} testID="register-name-input" />
           <Field
             label="Correo"

@@ -95,6 +95,7 @@ export default function ListaScreen() {
   const [isCreating, setIsCreating] = useState(false);
 
   const [newTitle, setNewTitle] = useState("");
+  const [titleError, setTitleError] = useState(false);
   const [isProgrammed, setIsProgrammed] = useState(false);
   const [date, setDate] = useState("");
   const [hour, setHour] = useState("08");
@@ -110,6 +111,7 @@ export default function ListaScreen() {
   useEffect(() => {
     if (showNew) {
       setNewTitle("");
+      setTitleError(false);
       setIsProgrammed(false);
       setDate("");
       setHour("08");
@@ -174,7 +176,10 @@ export default function ListaScreen() {
   const onCreate = async () => {
     if (isCreating) return;
     const title = newTitle.trim();
-    if (!title) return;
+    if (!title) {
+      setTitleError(true);
+      return;
+    }
     setIsCreating(true);
     try {
       let scheduledAt: string | null = null;
@@ -261,7 +266,18 @@ export default function ListaScreen() {
             <FloatingMascot source={PAN_ASSETS.modalLista} />
             <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md, paddingTop: MODAL_FORM_MASCOT_SPACER }} bottomOffset={20}>
               <ModalFormHeader icon="check-square" title="Nueva Lista" />
-              <ModalFormField label="Nombre de la lista" icon="edit-3" placeholder="Ej. Compras del súper" value={newTitle} onChangeText={setNewTitle} testID="lista-new-title" />
+              <ModalFormField
+                label="Nombre de la lista"
+                icon="edit-3"
+                placeholder="Ej. Compras del súper"
+                value={newTitle}
+                onChangeText={(t) => {
+                  setNewTitle(t);
+                  if (titleError) setTitleError(false);
+                }}
+                errorText={titleError ? "Ponle un nombre a la lista" : undefined}
+                testID="lista-new-title"
+              />
 
               <View style={{ gap: SPACING.xs }}>
                 <Text style={formStyles.label}>Ítems</Text>

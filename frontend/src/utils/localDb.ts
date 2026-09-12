@@ -88,13 +88,18 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         synced INTEGER DEFAULT 1
       );
 
-      -- Cartera: saldo activo del ciclo de sueldo en curso.
+      -- Cartera: saldo activo del ciclo de sueldo en curso. Una fila por
+      -- usuario (id = 'main_' + user_id); user_id es lo que realmente
+      -- aísla los datos entre cuentas del mismo dispositivo.
       CREATE TABLE IF NOT EXISTS wallet (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT '',
         cartera_efectivo REAL DEFAULT 0,
         cartera_digital REAL DEFAULT 0,
         caja_chica REAL DEFAULT 0,
         ahorro REAL DEFAULT 0,
+        target_ahorro REAL DEFAULT 0,
+        target_caja_chica REAL DEFAULT 0,
         last_salary REAL DEFAULT 0,
         cycle_start TEXT,
         next_payment_date TEXT
@@ -105,6 +110,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
       -- presupuestado editable.
       CREATE TABLE IF NOT EXISTS budget_categories (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT '',
         type TEXT NOT NULL,
         name TEXT NOT NULL,
         amount REAL DEFAULT 0,
@@ -118,6 +124,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
       -- 'caja_chica' o 'ahorro'-. Los ingresos siempre usan 'cuenta'.
       CREATE TABLE IF NOT EXISTS transactions (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT '',
         kind TEXT NOT NULL,
         amount REAL NOT NULL,
         method TEXT,
@@ -134,6 +141,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
       -- (o el ciclo abierto en curso, con end_date NULL).
       CREATE TABLE IF NOT EXISTS cycles (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT '',
         start_date TEXT NOT NULL,
         end_date TEXT,
         label TEXT,
@@ -149,6 +157,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
       -- del panel de Notas.
       CREATE TABLE IF NOT EXISTS notes (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT '',
         subject TEXT DEFAULT '',
         text TEXT NOT NULL,
         pinned INTEGER DEFAULT 0,
@@ -170,6 +179,7 @@ async function initDb(db: SQLite.SQLiteDatabase) {
       -- en el Historial de Listas).
       CREATE TABLE IF NOT EXISTS lists (
         id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT '',
         list_code TEXT,
         title TEXT NOT NULL,
         category TEXT,
@@ -194,6 +204,12 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         created_at TEXT NOT NULL
       );
 
+      CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet(user_id);
+      CREATE INDEX IF NOT EXISTS idx_budget_categories_user ON budget_categories(user_id);
+      CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_cycles_user ON cycles(user_id);
+      CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id);
+      CREATE INDEX IF NOT EXISTS idx_lists_user ON lists(user_id);
       CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
       CREATE INDEX IF NOT EXISTS idx_transactions_cycle ON transactions(cycle_id);
       CREATE INDEX IF NOT EXISTS idx_cycles_start ON cycles(start_date);
@@ -237,6 +253,38 @@ async function initDb(db: SQLite.SQLiteDatabase) {
       // fija la categoría real al momento de crear la transacción; ver
       // ensureBudgetCategoryId en DataContext.tsx.
       await db.runAsync(`ALTER TABLE transactions ADD COLUMN category_id TEXT;`);
+    } catch {}
+    // Aislamiento de datos entre cuentas: antes ninguna tabla tenía
+    // user_id, así que cualquier cuenta nueva en el mismo dispositivo veía
+    // los saldos/presupuestos/cierres de la cuenta anterior (todas las
+    // filas eran globales). DEFAULT '' en instalaciones viejas para que la
+    // migración no falle; DataContext siempre escribe el user_id real
+    // desde acá en adelante y filtra cada consulta por él.
+    try {
+      await db.runAsync(`ALTER TABLE wallet ADD COLUMN user_id TEXT NOT NULL DEFAULT '';`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE budget_categories ADD COLUMN user_id TEXT NOT NULL DEFAULT '';`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE transactions ADD COLUMN user_id TEXT NOT NULL DEFAULT '';`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE cycles ADD COLUMN user_id TEXT NOT NULL DEFAULT '';`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE notes ADD COLUMN user_id TEXT NOT NULL DEFAULT '';`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE lists ADD COLUMN user_id TEXT NOT NULL DEFAULT '';`);
+    } catch {}
+    // Metas de "MIS OBJETIVOS" (Ahorro/Caja Chica): montos objetivo
+    // editables, viven junto al resto de la Cartera en la misma fila.
+    try {
+      await db.runAsync(`ALTER TABLE wallet ADD COLUMN target_ahorro REAL DEFAULT 0;`);
+    } catch {}
+    try {
+      await db.runAsync(`ALTER TABLE wallet ADD COLUMN target_caja_chica REAL DEFAULT 0;`);
     } catch {}
   } catch (err) {
     console.warn("Fallo en execAsync de creación de tablas SQLite:", err);

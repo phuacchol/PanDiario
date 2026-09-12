@@ -7,7 +7,8 @@ import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader"
 import { EmptyState } from "@/src/components/Mascot";
 import { ChipRow, InputPrompt } from "@/src/components/ui";
 import { TransactionCard } from "@/src/components/TransactionCard";
-import { ModalFormHeader, ModalFormField, ModalFormSegmented, ModalFormButton, FloatingMascot, MODAL_FORM_MASCOT_SPACER } from "@/src/components/ModalForm";
+import { TransactionDetailModal } from "@/src/components/TransactionDetailModal";
+import { ModalFormHeader, ModalFormField, ModalFormCategoryField, ModalFormSegmented, ModalFormButton, FloatingMascot, MODAL_FORM_MASCOT_SPACER } from "@/src/components/ModalForm";
 import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useAuth } from "@/src/context/AuthContext";
@@ -23,6 +24,7 @@ export default function IngresoScreen() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [showEditor, setShowEditor] = useState(false);
+  const [detailTx, setDetailTx] = useState<Transaction | null>(null);
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -137,11 +139,20 @@ export default function IngresoScreen() {
             headerColor={colors.success}
             amountColor={colors.onSurface}
             amountPrefix=""
+            onPress={() => setDetailTx(item)}
             onEdit={() => openEdit(item)}
             onDelete={() => deleteTransaction(item.id)}
             testIDPrefix="ingreso"
           />
         )}
+      />
+
+      <TransactionDetailModal
+        visible={!!detailTx}
+        transaction={detailTx}
+        amountColor={colors.onSurface}
+        amountPrefix=""
+        onClose={() => setDetailTx(null)}
       />
 
       <Pressable style={[styles.fab, { backgroundColor: colors.success }]} onPress={openNew} testID="ingreso-fab">
@@ -182,7 +193,7 @@ export default function IngresoScreen() {
                 </View>
               ) : null}
 
-              <ModalFormField label="Categoría" icon="tag" placeholder="Otros" value={category} onChangeText={setCategory} testID="ingreso-category-input" />
+              <ModalFormCategoryField value={category} onChangeText={setCategory} suggestions={categoryNames} testID="ingreso-category-input" />
 
               <ModalFormField label="Nota (opcional)" icon="edit-2" placeholder="Detalle del ingreso" value={note} onChangeText={setNote} testID="ingreso-note-input" />
               <ModalFormButton title={editingId ? "Guardar Cambios" : "Registrar Ingreso"} onPress={onSubmit} testID="ingreso-submit-button" />

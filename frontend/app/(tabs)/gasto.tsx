@@ -7,7 +7,8 @@ import { DarkHeader, darkHeaderSearchStyles } from "@/src/components/DarkHeader"
 import { EmptyState } from "@/src/components/Mascot";
 import { ChipRow, InputPrompt } from "@/src/components/ui";
 import { TransactionCard } from "@/src/components/TransactionCard";
-import { ModalFormHeader, ModalFormField, ModalFormSegmented, ModalFormOriginGrid, ModalFormButton, FloatingMascot, MODAL_FORM_MASCOT_SPACER } from "@/src/components/ModalForm";
+import { TransactionDetailModal } from "@/src/components/TransactionDetailModal";
+import { ModalFormHeader, ModalFormField, ModalFormCategoryField, ModalFormSegmented, ModalFormOriginGrid, ModalFormButton, FloatingMascot, MODAL_FORM_MASCOT_SPACER } from "@/src/components/ModalForm";
 import { PAN_ASSETS } from "@/src/constants/mascot";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useAuth } from "@/src/context/AuthContext";
@@ -17,8 +18,8 @@ import { formatMoney, currencySymbol } from "@/src/utils/format";
 
 // Misma regla que antes pintaba el borde lateral de cada fila de Gasto según
 // la cuenta/origen del dinero (nunca la categoría de compra): ahora pinta la
-// franja superior de la tarjeta. "cuenta" no tiene color propio asignado en
-// ORIGIN_HEADER_COLORS -cae al warning del tema, igual que antes.
+// franja superior de la tarjeta. Respaldo a colors.warning solo por si algún
+// origen quedara sin mapear en ORIGIN_HEADER_COLORS.
 function originHeaderColor(origin: Origin, colors: ReturnType<typeof useTheme>["colors"]): string {
   return ORIGIN_HEADER_COLORS[origin as keyof typeof ORIGIN_HEADER_COLORS] || colors.warning;
 }
@@ -31,6 +32,7 @@ export default function GastoScreen() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("Todas");
   const [showEditor, setShowEditor] = useState(false);
+  const [detailTx, setDetailTx] = useState<Transaction | null>(null);
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -148,11 +150,20 @@ export default function GastoScreen() {
             headerColor={originHeaderColor(item.origin, colors)}
             amountColor={colors.error}
             amountPrefix="-"
+            onPress={() => setDetailTx(item)}
             onEdit={() => openEdit(item)}
             onDelete={() => deleteTransaction(item.id)}
             testIDPrefix="gasto"
           />
         )}
+      />
+
+      <TransactionDetailModal
+        visible={!!detailTx}
+        transaction={detailTx}
+        amountColor={colors.error}
+        amountPrefix="-"
+        onClose={() => setDetailTx(null)}
       />
 
       <Pressable style={[styles.fab, { backgroundColor: colors.error }]} onPress={openNew} testID="gasto-fab">
@@ -198,7 +209,7 @@ export default function GastoScreen() {
                 <ModalFormOriginGrid value={origin} onChange={setOrigin} testID="gasto-origin-grid" />
               </View>
 
-              <ModalFormField label="Categoría" icon="tag" placeholder="Otros" value={category} onChangeText={setCategory} testID="gasto-category-input" />
+              <ModalFormCategoryField value={category} onChangeText={setCategory} suggestions={categoryNames} testID="gasto-category-input" />
 
               <ModalFormField label="Nota (opcional)" icon="edit-2" placeholder="Detalle del gasto" value={note} onChangeText={setNote} testID="gasto-note-input" />
               <ModalFormButton title={editingId ? "Guardar Cambios" : "Registrar Gasto"} onPress={onSubmit} testID="gasto-submit-button" />
