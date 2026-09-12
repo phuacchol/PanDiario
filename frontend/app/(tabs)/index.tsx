@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Modal, FlatList, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -11,6 +12,7 @@ import { useData, daysUntil, type Cycle } from "@/src/context/DataContext";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE, CAJA_CHICA_GRADIENT, AHORRO_GRADIENT, NETO_GRADIENT, BUDGET_VITAL_COLOR, BUDGET_SECO_COLOR, BUDGET_PILL_BG } from "@/src/theme/theme";
 import { formatMoney, formatLocalDate, formatLocalTime } from "@/src/utils/format";
+import { randomMotivationalQuote } from "@/src/constants/quotes";
 import { AhorrarModal } from "@/src/components/home/AhorrarModal";
 import { PagaronModal, type SalaryMethod } from "@/src/components/home/PagaronModal";
 import { BudgetCalculatorModal } from "@/src/components/home/BudgetCalculatorModal";
@@ -67,6 +69,16 @@ export default function Home() {
   const [budgetInitialTab, setBudgetInitialTab] = useState<"vital" | "secundario">("vital");
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [detailCycle, setDetailCycle] = useState<Cycle | null>(null);
+
+  // Frase motivacional entre MIS OBJETIVOS e HISTORIAL DE CIERRE: una nueva
+  // al azar cada vez que esta pestaña recibe foco (no solo al montar), para
+  // que cambie también al volver desde otra pestaña.
+  const [currentQuote, setCurrentQuote] = useState(randomMotivationalQuote);
+  useFocusEffect(
+    useCallback(() => {
+      setCurrentQuote(randomMotivationalQuote());
+    }, [])
+  );
 
   const carteraTotal = wallet.carteraEfectivo + wallet.carteraDigital;
   const dias = daysUntil(wallet.nextPaymentDate);
@@ -272,6 +284,10 @@ export default function Home() {
           onSave={updateGoals}
         />
 
+        <View style={styles.quoteWrap} testID="home-motivational-quote">
+          <Text style={styles.quoteText}>&quot;{currentQuote}&quot;</Text>
+        </View>
+
         {/* Historial de Cierres */}
         <View style={{ gap: SPACING.md }}>
           <View style={styles.historyHeader}>
@@ -389,6 +405,11 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
+  // Nunito (FONTS.regular) es la única sans-serif ya cargada en la app
+  // -ver theme.ts-; se usa en vez de Open Sans para no agregar una familia
+  // de fuente nueva solo para esta frase.
+  quoteWrap: { paddingHorizontal: 24, paddingVertical: 14, alignItems: "center" },
+  quoteText: { fontFamily: FONTS.regular, fontStyle: "italic", fontSize: FONT_SIZE.sm, color: "#aab1c2", textAlign: "center" },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
   headerRightGroup: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
