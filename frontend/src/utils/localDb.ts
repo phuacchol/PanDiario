@@ -215,12 +215,6 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         created_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet(user_id);
-      CREATE INDEX IF NOT EXISTS idx_budget_categories_user ON budget_categories(user_id);
-      CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
-      CREATE INDEX IF NOT EXISTS idx_cycles_user ON cycles(user_id);
-      CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id);
-      CREATE INDEX IF NOT EXISTS idx_lists_user ON lists(user_id);
       CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
       CREATE INDEX IF NOT EXISTS idx_transactions_cycle ON transactions(cycle_id);
       CREATE INDEX IF NOT EXISTS idx_cycles_start ON cycles(start_date);
@@ -296,6 +290,25 @@ async function initDb(db: SQLite.SQLiteDatabase) {
     } catch {}
     try {
       await db.runAsync(`ALTER TABLE wallet ADD COLUMN target_caja_chica REAL DEFAULT 0;`);
+    } catch {}
+
+    // Los índices por user_id deben crearse DESPUÉS de las migraciones de
+    // arriba, nunca en el mismo execAsync que CREATE TABLE IF NOT EXISTS:
+    // en una instalación donde esas tablas ya existían (sin user_id
+    // todavía), CREATE TABLE es un no-op y CREATE INDEX ON tabla(user_id)
+    // fallaba con "no such column: user_id" -eso hacía que el execAsync
+    // completo lanzara excepción y ABORTARA antes de llegar siquiera a las
+    // ALTER TABLE de arriba (mismo try/catch), así que ninguna migración
+    // corría nunca en un dispositivo con datos previos a este cambio-.
+    try {
+      await db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_wallet_user ON wallet(user_id);
+        CREATE INDEX IF NOT EXISTS idx_budget_categories_user ON budget_categories(user_id);
+        CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_cycles_user ON cycles(user_id);
+        CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id);
+        CREATE INDEX IF NOT EXISTS idx_lists_user ON lists(user_id);
+      `);
     } catch {}
   } catch (err) {
     console.warn("Fallo en execAsync de creación de tablas SQLite:", err);
