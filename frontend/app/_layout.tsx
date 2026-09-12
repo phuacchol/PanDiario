@@ -38,10 +38,10 @@ function RootNavigator() {
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }}>
         {/* Mismo backgroundColor exacto que expo-splash-screen (app.json)
             para esta pantalla: si el contenedor del Stack llega a pintar un
-            frame antes de que BicolorCurveBackground lo cubra, no debe
-            asomar el gris neutro de colors.surface como un "recuadro" de
-            otro color justo al salir del splash nativo. */}
-        <Stack.Screen name="index" options={{ contentStyle: { backgroundColor: "#8FA7D6" } }} />
+            frame antes de que termine de redirigir, no debe asomar el gris
+            neutro de colors.surface como un "recuadro" de otro color justo
+            al salir del splash nativo. */}
+        <Stack.Screen name="index" options={{ contentStyle: { backgroundColor: "#6381e9" } }} />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
