@@ -240,7 +240,7 @@ export default function Voice() {
         {phase === "idle" || phase === "listening" || phase === "processing" ? (
           <View style={styles.centerArea}>
             <Image
-              source={phase === "listening" ? PAN_ASSETS.listening : PAN_ASSETS.avatar}
+              source={PAN_ASSETS.listening}
               style={styles.mascot}
               contentFit="contain"
               testID="voice-mascot"

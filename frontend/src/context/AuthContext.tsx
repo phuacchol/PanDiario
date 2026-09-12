@@ -129,6 +129,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loadMe();
   }, [loadMe]);
 
+  // Mantiene active_session al día con la cuenta realmente activa -un
+  // único useEffect reactivo a user?.id cubre login/signUp/signOut/cambio
+  // de cuenta sin duplicar la escritura en cada punto donde setUser() ya
+  // se llama arriba-. Es la única fuente que la burbuja nativa (PanDb.kt,
+  // fuera del proceso JS) tiene para saber a qué user_id atar lo que
+  // registre: antes no distinguía cuentas en absoluto.
+  useEffect(() => {
+    (async () => {
+      const db = await getDb();
+      if (!db) return;
+      if (user?.id) {
+        await db.runAsync(`INSERT OR REPLACE INTO active_session (id, user_id) VALUES ('current', ?)`, [user.id]).catch(() => {});
+      } else {
+        await db.runAsync(`DELETE FROM active_session WHERE id = 'current'`).catch(() => {});
+      }
+    })();
+  }, [user?.id]);
+
   const signIn = useCallback(async (email: string, password: string) => {
     const cleanEmail = email.trim().toLowerCase();
     const db = await getDb();

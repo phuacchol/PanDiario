@@ -88,6 +88,17 @@ async function initDb(db: SQLite.SQLiteDatabase) {
         synced INTEGER DEFAULT 1
       );
 
+      -- Única fila (id='current'): qué cuenta está activa en este momento.
+      -- AuthContext.tsx la mantiene al día en cada login/logout/cambio de
+      -- cuenta; PanDb.kt.template (burbuja flotante nativa, fuera del
+      -- proceso JS) la lee directamente de esta misma base para saber a
+      -- qué user_id atar cada Ingreso/Gasto/Nota/Lista que registre -sin
+      -- esto, la burbuja no tenía forma de saber qué cuenta estaba activa.
+      CREATE TABLE IF NOT EXISTS active_session (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL
+      );
+
       -- Cartera: saldo activo del ciclo de sueldo en curso. Una fila por
       -- usuario (id = 'main_' + user_id); user_id es lo que realmente
       -- aísla los datos entre cuentas del mismo dispositivo.

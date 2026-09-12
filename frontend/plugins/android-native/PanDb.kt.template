@@ -123,10 +123,31 @@ object PanDb {
     }
   }
 
+  // Aislamiento de datos entre cuentas: antes este archivo entero asumía
+  // un único usuario por dispositivo (wallet.id='main', "users LIMIT 1",
+  // sin filtrar transactions/cycles/notes/lists por dueño) -si el
+  // dispositivo tenía más de una cuenta, la burbuja leía/escribía sobre
+  // la que fuera que SQLite devolviera primero, sin relación con cuál
+  // sesión estuviera realmente activa en la app-. active_session (tabla
+  // sembrada por AuthContext.tsx en cada login/logout, ver localDb.ts) es
+  // la única fuente de verdad de qué user_id está activo ahora mismo; se
+  // lee sobre la misma conexión que cada función ya tiene abierta, sin
+  // necesitar un puente nativo nuevo hacia JS.
+  private fun getActiveUserId(db: SQLiteDatabase): String? {
+    return try {
+      db.rawQuery("SELECT user_id FROM active_session WHERE id = 'current'", null).use { c ->
+        if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() } else null
+      }
+    } catch (_: Exception) {
+      null
+    }
+  }
+
   fun getInProgressList(context: Context): ListRow? {
     val db = open(context) ?: return null
     try {
-      db.rawQuery("SELECT id, list_code, title, status FROM lists WHERE status = 'in_progress' ORDER BY created_at DESC LIMIT 1", null).use { c ->
+      val uid = getActiveUserId(db) ?: return null
+      db.rawQuery("SELECT id, list_code, title, status FROM lists WHERE status = 'in_progress' AND user_id = ? ORDER BY created_at DESC LIMIT 1", arrayOf(uid)).use { c ->
         if (c.moveToFirst()) return ListRow(c.getString(0), c.getString(1) ?: "", c.getString(2), c.getString(3))
       }
       return null
@@ -140,7 +161,8 @@ object PanDb {
   fun getList(context: Context, listId: String): ListRow? {
     val db = open(context) ?: return null
     try {
-      db.rawQuery("SELECT id, list_code, title, status FROM lists WHERE id = ?", arrayOf(listId)).use { c ->
+      val uid = getActiveUserId(db) ?: return null
+      db.rawQuery("SELECT id, list_code, title, status FROM lists WHERE id = ? AND user_id = ?", arrayOf(listId, uid)).use { c ->
         if (c.moveToFirst()) return ListRow(c.getString(0), c.getString(1) ?: "", c.getString(2), c.getString(3))
       }
       return null
@@ -241,7 +263,8 @@ object PanDb {
   fun getOpenCycleId(context: Context): String? {
     val db = open(context) ?: return null
     try {
-      db.rawQuery("SELECT id FROM cycles WHERE end_date IS NULL ORDER BY start_date DESC LIMIT 1", null).use { c ->
+      val uid = getActiveUserId(db) ?: return null
+      db.rawQuery("SELECT id FROM cycles WHERE end_date IS NULL AND user_id = ? ORDER BY start_date DESC LIMIT 1", arrayOf(uid)).use { c ->
         if (c.moveToFirst()) return c.getString(0)
       }
       return null
@@ -252,16 +275,18 @@ object PanDb {
     }
   }
 
-  // Moneda activa: mismo criterio de usuario único por dispositivo que el
-  // resto de este archivo (sin filtrar por id). Refleja lo que
-  // AuthContext.updateUser() persiste en el lado React -antes ese método
-  // solo guardaba en memoria/AsyncStorage, nunca en esta fila; ver el fix
-  // de reactividad de moneda-, así que la burbuja y la app siempre leen el
-  // mismo valor.
+  // Moneda de la cuenta realmente activa (ver getActiveUserId) -antes
+  // tomaba "users LIMIT 1", que con más de una cuenta en el dispositivo
+  // podía devolver la moneda de una cuenta distinta a la que estaba
+  // usando la app-. Refleja lo que AuthContext.updateUser() persiste en
+  // el lado React -antes ese método solo guardaba en memoria/AsyncStorage,
+  // nunca en esta fila; ver el fix de reactividad de moneda-, así que la
+  // burbuja y la app siempre leen el mismo valor.
   fun getCurrency(context: Context): String {
     val db = open(context) ?: return "PEN"
     try {
-      db.rawQuery("SELECT currency FROM users LIMIT 1", null).use { c ->
+      val uid = getActiveUserId(db) ?: return "PEN"
+      db.rawQuery("SELECT currency FROM users WHERE id = ?", arrayOf(uid)).use { c ->
         if (c.moveToFirst()) return c.getString(0) ?: "PEN"
       }
       return "PEN"
@@ -288,8 +313,8 @@ object PanDb {
   // queda como respaldo por si categoryId llega null (no debería pasar en
   // la práctica, pero evita perder el cupo si algún caller futuro lo
   // omite).
-  private fun applyWalletEffect(db: SQLiteDatabase, kind: String, amount: Double, method: String, cashAmount: Double?, origin: String, category: String, categoryId: String?) {
-    db.rawQuery("SELECT cartera_efectivo, cartera_digital, caja_chica, ahorro FROM wallet WHERE id = 'main'", null).use { c ->
+  private fun applyWalletEffect(db: SQLiteDatabase, uid: String, kind: String, amount: Double, method: String, cashAmount: Double?, origin: String, category: String, categoryId: String?) {
+    db.rawQuery("SELECT cartera_efectivo, cartera_digital, caja_chica, ahorro FROM wallet WHERE user_id = ?", arrayOf(uid)).use { c ->
       if (c.moveToFirst()) {
         var carteraEfectivo = c.getDouble(0)
         var carteraDigital = c.getDouble(1)
@@ -312,17 +337,17 @@ object PanDb {
         }
 
         db.execSQL(
-          "UPDATE wallet SET cartera_efectivo = ?, cartera_digital = ?, caja_chica = ?, ahorro = ? WHERE id = 'main'",
-          arrayOf(carteraEfectivo, carteraDigital, cajaChica, ahorro)
+          "UPDATE wallet SET cartera_efectivo = ?, cartera_digital = ?, caja_chica = ?, ahorro = ? WHERE user_id = ?",
+          arrayOf(carteraEfectivo, carteraDigital, cajaChica, ahorro, uid)
         )
 
         // Los ingresos siempre usan origin='cuenta' (ver addIncome), así
         // que esta rama solo se ejercita para gastos con cupo asignado.
         if (origin == "vital" || origin == "secundario") {
           val query = if (categoryId != null) {
-            db.rawQuery("SELECT id, amount FROM budget_categories WHERE id = ?", arrayOf(categoryId))
+            db.rawQuery("SELECT id, amount FROM budget_categories WHERE id = ? AND user_id = ?", arrayOf(categoryId, uid))
           } else {
-            db.rawQuery("SELECT id, amount FROM budget_categories WHERE type = ? AND name = ?", arrayOf(origin, category))
+            db.rawQuery("SELECT id, amount FROM budget_categories WHERE type = ? AND name = ? AND user_id = ?", arrayOf(origin, category, uid))
           }
           query.use { c2 ->
             if (c2.moveToFirst()) {
@@ -341,15 +366,15 @@ object PanDb {
   // de la app- la crea con cupo 0 y devuelve el id nuevo. Este id es lo que
   // se guarda en transactions.category_id, así que applyWalletEffect puede
   // encontrar la categoría real más tarde aunque el usuario la renombre.
-  private fun ensureCategory(db: SQLiteDatabase, type: String, name: String): String? {
+  private fun ensureCategory(db: SQLiteDatabase, uid: String, type: String, name: String): String? {
     if (name.isBlank()) return null
-    db.rawQuery("SELECT id FROM budget_categories WHERE type = ? AND name = ?", arrayOf(type, name)).use { c ->
+    db.rawQuery("SELECT id FROM budget_categories WHERE type = ? AND name = ? AND user_id = ?", arrayOf(type, name, uid)).use { c ->
       if (c.moveToFirst()) return c.getString(0)
     }
     val id = newId("cat")
     db.execSQL(
-      "INSERT INTO budget_categories (id, type, name, amount, created_at) VALUES (?, ?, ?, 0, ?)",
-      arrayOf(id, type, name, isoNow())
+      "INSERT INTO budget_categories (id, user_id, type, name, amount, created_at) VALUES (?, ?, ?, ?, 0, ?)",
+      arrayOf(id, uid, type, name, isoNow())
     )
     return id
   }
@@ -372,6 +397,7 @@ object PanDb {
     val db = open(context) ?: return false
     var ok = false
     try {
+      val uid = getActiveUserId(db) ?: return false
       db.beginTransaction()
       val txId = newId("tx")
       val now = isoNow()
@@ -382,12 +408,12 @@ object PanDb {
       // correspondiente nunca se creaba/rastreaba -mismo bug que ya
       // tenían addIncome/addExpense, solo que aquí faltaba del todo-.
       val categoryType = if (origin == "secundario") "secundario" else "vital"
-      val categoryId = ensureCategory(db, categoryType, category)
+      val categoryId = ensureCategory(db, uid, categoryType, category)
       db.execSQL(
-        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        arrayOf(txId, amount, method, cashAmount, category, categoryId, origin, note, now, cycleId)
+        "INSERT INTO transactions (id, user_id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, ?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        arrayOf(txId, uid, amount, method, cashAmount, category, categoryId, origin, note, now, cycleId)
       )
-      applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, category, categoryId)
+      applyWalletEffect(db, uid, "gasto", amount, method, cashAmount, origin, category, categoryId)
       db.execSQL("UPDATE lists SET status = 'done', completed_at = ? WHERE id = ?", arrayOf(now, listId))
       db.setTransactionSuccessful()
       ok = true
@@ -436,14 +462,15 @@ object PanDb {
     val db = open(context) ?: return false
     var ok = false
     try {
+      val uid = getActiveUserId(db) ?: return false
       db.beginTransaction()
       val cleanCategory = category.trim().ifEmpty { "Otros" }
-      val categoryId = ensureCategory(db, "ingreso", cleanCategory)
+      val categoryId = ensureCategory(db, uid, "ingreso", cleanCategory)
       db.execSQL(
-        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'ingreso', ?, ?, ?, ?, ?, 'cuenta', ?, ?, ?)",
-        arrayOf(newId("tx"), amount, method, cashAmount, cleanCategory, categoryId, note, isoNow(), cycleId)
+        "INSERT INTO transactions (id, user_id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, ?, 'ingreso', ?, ?, ?, ?, ?, 'cuenta', ?, ?, ?)",
+        arrayOf(newId("tx"), uid, amount, method, cashAmount, cleanCategory, categoryId, note, isoNow(), cycleId)
       )
-      applyWalletEffect(db, "ingreso", amount, method, cashAmount, "cuenta", cleanCategory, categoryId)
+      applyWalletEffect(db, uid, "ingreso", amount, method, cashAmount, "cuenta", cleanCategory, categoryId)
       db.setTransactionSuccessful()
       ok = true
     } catch (_: Exception) {
@@ -466,15 +493,16 @@ object PanDb {
     val db = open(context) ?: return false
     var ok = false
     try {
+      val uid = getActiveUserId(db) ?: return false
       db.beginTransaction()
       val cleanCategory = category.trim().ifEmpty { "Otros" }
       val categoryType = if (origin == "secundario") "secundario" else "vital"
-      val categoryId = ensureCategory(db, categoryType, cleanCategory)
+      val categoryId = ensureCategory(db, uid, categoryType, cleanCategory)
       db.execSQL(
-        "INSERT INTO transactions (id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        arrayOf(newId("tx"), amount, method, cashAmount, cleanCategory, categoryId, origin, note, isoNow(), cycleId)
+        "INSERT INTO transactions (id, user_id, kind, amount, method, cash_amount, category, category_id, origin, note, created_at, cycle_id) VALUES (?, ?, 'gasto', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        arrayOf(newId("tx"), uid, amount, method, cashAmount, cleanCategory, categoryId, origin, note, isoNow(), cycleId)
       )
-      applyWalletEffect(db, "gasto", amount, method, cashAmount, origin, cleanCategory, categoryId)
+      applyWalletEffect(db, uid, "gasto", amount, method, cashAmount, origin, cleanCategory, categoryId)
       db.setTransactionSuccessful()
       ok = true
     } catch (_: Exception) {
@@ -495,10 +523,11 @@ object PanDb {
     val db = open(context) ?: return false
     var ok = false
     try {
+      val uid = getActiveUserId(db) ?: return false
       db.beginTransaction()
       db.execSQL(
-        "INSERT INTO notes (id, subject, text, pinned, is_reminder, remind_at, lead_minutes, notification_id, done, completed_at, created_at) VALUES (?, ?, ?, 0, 0, NULL, 15, NULL, 0, NULL, ?)",
-        arrayOf(newId("note"), subject.trim(), text.trim(), isoNow())
+        "INSERT INTO notes (id, user_id, subject, text, pinned, is_reminder, remind_at, lead_minutes, notification_id, done, completed_at, created_at) VALUES (?, ?, ?, ?, 0, 0, NULL, 15, NULL, 0, NULL, ?)",
+        arrayOf(newId("note"), uid, subject.trim(), text.trim(), isoNow())
       )
       db.setTransactionSuccessful()
       ok = true
@@ -524,9 +553,10 @@ object PanDb {
     val db = open(context) ?: return null
     var resultId: String? = null
     try {
+      val uid = getActiveUserId(db) ?: return null
       db.beginTransaction()
       var maxSeq = 0
-      db.rawQuery("SELECT list_code FROM lists", null).use { c ->
+      db.rawQuery("SELECT list_code FROM lists WHERE user_id = ?", arrayOf(uid)).use { c ->
         while (c.moveToNext()) {
           val code = c.getString(0) ?: continue
           val m = Regex("^L-(\\d+)$").find(code) ?: continue
@@ -538,8 +568,8 @@ object PanDb {
       val id = newId("list")
       val now = isoNow()
       db.execSQL(
-        "INSERT INTO lists (id, list_code, title, category, is_programmed, scheduled_at, lead_minutes, notification_id, status, created_at, cycle_id) VALUES (?, ?, ?, NULL, 0, NULL, 15, NULL, 'active', ?, ?)",
-        arrayOf(id, listCode, title.trim(), now, getOpenCycleId(context))
+        "INSERT INTO lists (id, user_id, list_code, title, category, is_programmed, scheduled_at, lead_minutes, notification_id, status, created_at, cycle_id) VALUES (?, ?, ?, ?, NULL, 0, NULL, 15, NULL, 'active', ?, ?)",
+        arrayOf(id, uid, listCode, title.trim(), now, getOpenCycleId(context))
       )
       for (item in items) {
         val clean = item.trim()
