@@ -174,7 +174,11 @@ export default function GastoScreen() {
         <View style={styles.backdrop}>
           <LinearGradient colors={MODAL_FORM_BG_GRADIENT} style={styles.sheet}>
             <FloatingMascot source={PAN_ASSETS.modalGasto} />
-            <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md, paddingTop: MODAL_FORM_MASCOT_SPACER }} bottomOffset={20}>
+            <KeyboardAwareScrollView
+              contentContainerStyle={{ gap: SPACING.md, paddingTop: MODAL_FORM_MASCOT_SPACER }}
+              bottomOffset={100}
+              keyboardShouldPersistTaps="handled"
+            >
               <View style={styles.sheetHeader}>
                 <View style={styles.sheetHeaderSpacer} />
                 <ModalFormHeader icon="arrow-down-circle" title={editingId ? "Editar Gasto" : "Nuevo Gasto"} />

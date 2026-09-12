@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, Keyboard, TextInputProps, ViewStyle, StyleProp, ImageSourcePropType } from "react-native";
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
@@ -101,6 +101,17 @@ export function ModalFormCategoryField({
   const q = value.trim().toLowerCase();
   const filtered = (q ? suggestions.filter((s) => s.toLowerCase().includes(q) && s.toLowerCase() !== q) : suggestions).slice(0, 6);
 
+  // El onBlur de abajo corre 150ms después (para no ocultar los chips
+  // antes de que el toque sobre uno de ellos llegue a registrarse) -leer
+  // `value` directamente ahí capturaría el valor de ESTE render, no el que
+  // haya quedado tras un toque en un chip mientras el timeout esperaba.
+  // El ref siempre tiene el valor más reciente al momento en que el
+  // timeout realmente se ejecuta.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
   return (
     <View style={{ gap: SPACING.xs }}>
       <ModalFormField
@@ -109,8 +120,18 @@ export function ModalFormCategoryField({
         placeholder="Otros"
         value={value}
         onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onFocus={() => {
+          setFocused(true);
+          // "Otros" llega precargado como texto real, no solo como hint:
+          // sin esto, escribir de inmediato lo pegaba al final ("OtrosViv").
+          if (value === "Otros") onChangeText("");
+        }}
+        onBlur={() => {
+          setTimeout(() => {
+            setFocused(false);
+            if (!valueRef.current.trim()) onChangeText("Otros");
+          }, 150);
+        }}
         testID={testID}
       />
       {focused && filtered.length > 0 ? (

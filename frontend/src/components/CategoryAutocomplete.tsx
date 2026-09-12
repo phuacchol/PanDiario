@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet } from "react-native";
+import { useMemo, useState, useRef, useEffect } from "react";
+import { View, Text, TextInput, Pressable, StyleSheet, Keyboard } from "react-native";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE } from "@/src/theme/theme";
 
@@ -29,6 +29,13 @@ export function CategoryAutocomplete({
 }) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
+  // Ver el mismo ref en ModalFormCategoryField (ModalForm.tsx): evita que
+  // el onBlur demorado 150ms pise con "Otros" un valor que un toque sobre
+  // una sugerencia acabe de fijar mientras el timeout esperaba.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
   const suggestions = useMemo(() => {
     const names = Array.from(new Set(categories.map((c) => c.name))).filter(Boolean);
@@ -47,8 +54,16 @@ export function CategoryAutocomplete({
         <TextInput
           value={value}
           onChangeText={onChange}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 150)}
+          onFocus={() => {
+            setFocused(true);
+            if (value === "Otros") onChange("");
+          }}
+          onBlur={() => {
+            setTimeout(() => {
+              setFocused(false);
+              if (!valueRef.current.trim()) onChange("Otros");
+            }, 150);
+          }}
           placeholder={placeholder}
           placeholderTextColor={colors.onSurfaceTertiary}
           style={[styles.input, { color: colors.onSurface }]}
@@ -63,6 +78,7 @@ export function CategoryAutocomplete({
               style={styles.suggestionRow}
               onPress={() => {
                 onChange(name);
+                Keyboard.dismiss();
                 setFocused(false);
               }}
               testID={testID ? `${testID}-suggestion-${name}` : undefined}

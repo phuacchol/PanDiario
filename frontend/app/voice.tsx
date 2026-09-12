@@ -283,7 +283,7 @@ export default function Voice() {
         ) : null}
 
         {phase === "confirm" && result && meta ? (
-          <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md }} bottomOffset={20}>
+          <KeyboardAwareScrollView contentContainerStyle={{ gap: SPACING.md }} bottomOffset={100} keyboardShouldPersistTaps="handled">
             <View style={[styles.kindBadge, { backgroundColor: meta.color + "22" }]}>
               <Feather name={meta.icon} size={18} color={meta.color} />
               <Text style={[styles.kindLabel, { color: meta.color }]}>{meta.label}</Text>

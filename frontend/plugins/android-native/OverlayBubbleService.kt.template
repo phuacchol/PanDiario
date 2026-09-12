@@ -723,14 +723,7 @@ class OverlayBubbleService : Service() {
     }
     body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
     body.addView(fieldLabel("Categoría"))
-    body.addView(EditText(this).apply {
-      hint = "Otros"
-      setText(genCategory)
-      setSingleLine(true)
-      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
-      setPadding(dp(10), dp(8), dp(10), dp(8))
-      addTextChangedListener(simpleWatcher { genCategory = it })
-    })
+    body.addView(categoryField(genCategory) { genCategory = it })
     body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
     body.addView(fieldLabel("Nota (opcional)"))
     body.addView(EditText(this).apply {
@@ -771,14 +764,7 @@ class OverlayBubbleService : Service() {
     })
     body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
     body.addView(fieldLabel("Categoría"))
-    body.addView(EditText(this).apply {
-      hint = "Otros"
-      setText(genCategory)
-      setSingleLine(true)
-      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
-      setPadding(dp(10), dp(8), dp(10), dp(8))
-      addTextChangedListener(simpleWatcher { genCategory = it })
-    })
+    body.addView(categoryField(genCategory) { genCategory = it })
     body.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)) })
     body.addView(fieldLabel("Nota (opcional)"))
     body.addView(EditText(this).apply {
@@ -1382,6 +1368,38 @@ class OverlayBubbleService : Service() {
       addTextChangedListener(simpleWatcher(onChange))
     })
     return row
+  }
+
+  // Campo de Categoría de los paneles genéricos de Ingreso/Gasto: "Otros"
+  // llega precargado como texto real (no solo hint), así que tocar el
+  // campo y escribir de inmediato lo pegaba al final ("OtrosViv"). Al
+  // enfocar, si el valor es exactamente "Otros" se vacía para escribir
+  // limpio; al perder foco, si quedó vacío, se restaura "Otros" -mismo
+  // comportamiento que ModalFormCategoryField del lado React-.
+  private fun categoryField(value: String, onChange: (String) -> Unit): View {
+    val input = EditText(this).apply {
+      hint = "Otros"
+      setText(value)
+      setSingleLine(true)
+      setBackgroundColor(Color.parseColor(COLOR_SURFACE_ALT))
+      setPadding(dp(10), dp(8), dp(10), dp(8))
+      addTextChangedListener(simpleWatcher(onChange))
+    }
+    input.setOnFocusChangeListener { _, hasFocus ->
+      if (hasFocus) {
+        if (input.text.toString() == "Otros") {
+          input.setText("")
+        }
+      } else {
+        // setText ya dispara el TextWatcher (afterTextChanged corre en
+        // cualquier cambio, no solo tecleado), así que no hace falta
+        // llamar onChange aparte.
+        if (input.text.toString().isBlank()) {
+          input.setText("Otros")
+        }
+      }
+    }
+    return input
   }
 
   private fun segmentedRow(options: List<Pair<String, String>>, value: String, onChange: (String) -> Unit): View {
