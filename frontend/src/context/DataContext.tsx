@@ -869,9 +869,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           const startDate = openCycleRow?.start_date ? new Date(openCycleRow.start_date) : new Date(prev.cycleStart);
           const label = computeCycleLabel(startDate, new Date(now));
 
+          // caja_chica_snapshot usa prev.cajaChica (el saldo con el que
+          // este ciclo realmente cerró), no next.cajaChica -que ya incluye
+          // el resto_caja recién trasladado, que pertenece contablemente al
+          // ciclo SIGUIENTE, no a este cierre-. Ver el ejemplo en el commit:
+          // un primer ciclo sin caja chica propia debe archivarse en S/0
+          // aunque el resto que deja para el próximo ciclo sea mayor a 0.
           await db.runAsync(
             `UPDATE cycles SET end_date = ?, label = ?, caja_chica_snapshot = ?, ahorro_snapshot = ?, resto_caja = ?, salary_amount = ? WHERE id = ?`,
-            [now, label, next.cajaChica, next.ahorro, resto, amount, openCycleId]
+            [now, label, prev.cajaChica, next.ahorro, resto, amount, openCycleId]
           ).catch(() => {});
 
           const newCycleId = newId("cycle");

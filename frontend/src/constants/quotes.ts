@@ -37,3 +37,13 @@ export const MOTIVATIONAL_QUOTES: string[] = [
 export function randomMotivationalQuote(): string {
   return MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
 }
+
+// Separa el autor -"(Nombre)" al final de la frase- del texto principal,
+// para que el llamador pueda renderizarlos en líneas distintas (frase
+// entre comillas + autor en una segunda línea sin paréntesis). Frases sin
+// autor (la mayoría del catálogo) devuelven author: null.
+export function parseQuote(quote: string): { text: string; author: string | null } {
+  const match = /^(.*?)\s*\(([^()]+)\)\s*$/.exec(quote);
+  if (!match) return { text: quote, author: null };
+  return { text: match[1], author: match[2] };
+}

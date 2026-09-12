@@ -12,7 +12,7 @@ import { useData, daysUntil, type Cycle } from "@/src/context/DataContext";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONTS, FONT_SIZE, CAJA_CHICA_GRADIENT, AHORRO_GRADIENT, NETO_GRADIENT, BUDGET_VITAL_COLOR, BUDGET_SECO_COLOR, BUDGET_PILL_BG } from "@/src/theme/theme";
 import { formatMoney, formatLocalDate, formatLocalTime } from "@/src/utils/format";
-import { randomMotivationalQuote } from "@/src/constants/quotes";
+import { randomMotivationalQuote, parseQuote } from "@/src/constants/quotes";
 import { AhorrarModal } from "@/src/components/home/AhorrarModal";
 import { PagaronModal, type SalaryMethod } from "@/src/components/home/PagaronModal";
 import { BudgetCalculatorModal } from "@/src/components/home/BudgetCalculatorModal";
@@ -79,6 +79,7 @@ export default function Home() {
       setCurrentQuote(randomMotivationalQuote());
     }, [])
   );
+  const { text: quoteText, author: quoteAuthor } = useMemo(() => parseQuote(currentQuote), [currentQuote]);
 
   const carteraTotal = wallet.carteraEfectivo + wallet.carteraDigital;
   const dias = daysUntil(wallet.nextPaymentDate);
@@ -285,7 +286,8 @@ export default function Home() {
         />
 
         <View style={styles.quoteWrap} testID="home-motivational-quote">
-          <Text style={styles.quoteText}>&quot;{currentQuote}&quot;</Text>
+          <Text style={styles.quoteText}>&quot;{quoteText}&quot;</Text>
+          {quoteAuthor ? <Text style={styles.quoteAuthor}>- {quoteAuthor} -</Text> : null}
         </View>
 
         {/* Historial de Cierres */}
@@ -410,6 +412,7 @@ const styles = StyleSheet.create({
   // de fuente nueva solo para esta frase.
   quoteWrap: { paddingHorizontal: 24, paddingVertical: 14, alignItems: "center" },
   quoteText: { fontFamily: FONTS.regular, fontStyle: "italic", fontSize: FONT_SIZE.sm, color: "#aab1c2", textAlign: "center" },
+  quoteAuthor: { fontFamily: FONTS.regular, fontStyle: "italic", fontSize: FONT_SIZE.xs, color: "#aab1c2", textAlign: "center", marginTop: 4 },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerLeft: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
   headerRightGroup: { flexDirection: "row", alignItems: "center", gap: SPACING.sm },
