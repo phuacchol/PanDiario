@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Política de Privacidad — PanDiario</title>
+<style>
+  :root {
+    --brand: #6C7FD8;
+    --text: #1E1B38;
+    --text-muted: #5B6172;
+    --bg: #F5F6FA;
+    --card: #FFFFFF;
+    --border: #E2E8F0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  header {
+    background: var(--brand);
+    color: #fff;
+    padding: 40px 20px;
+    text-align: center;
+  }
+  header h1 { margin: 0 0 6px; font-size: 1.7rem; }
+  header p { margin: 0; opacity: 0.9; font-size: 0.95rem; }
+  main {
+    max-width: 760px;
+    margin: -24px auto 60px;
+    padding: 0 20px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 30px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 10px rgba(20, 20, 40, 0.04);
+  }
+  h2 {
+    font-size: 1.15rem;
+    color: var(--brand);
+    margin-top: 0;
+    margin-bottom: 10px;
+  }
+  p { margin: 0 0 12px; color: var(--text); }
+  ul { margin: 0 0 12px; padding-left: 20px; }
+  li { margin-bottom: 8px; }
+  .muted { color: var(--text-muted); font-size: 0.9rem; }
+  .meta {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin: 24px 0 10px;
+  }
+  a { color: var(--brand); }
+  .perm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.92rem;
+    margin-top: 6px;
+  }
+  .perm-table th, .perm-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .perm-table th { color: var(--text-muted); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; }
+  code {
+    background: #F0F1F7;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+  }
+  footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 20px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Política de Privacidad de PanDiario</h1>
+  <p>com.panconmiel.pandiario</p>
+</header>
+
+<main>
+  <p class="meta">Última actualización: 14 de septiembre de 2026</p>
+
+  <div class="card">
+    <h2>1. Resumen</h2>
+    <p>
+      PanDiario es una aplicación <strong>100% local</strong>. No tiene servidor, no tiene cuenta en la nube
+      y no envía información a internet. Todo lo que creas dentro de la app — tus listas y tus notas —
+      se guarda únicamente en la memoria de tu propio teléfono, en una base de datos privada de la aplicación
+      (SQLite) a la que ninguna otra app ni nosotros podemos acceder.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>2. Qué datos maneja la app y dónde quedan</h2>
+    <p>PanDiario almacena localmente en tu dispositivo:</p>
+    <ul>
+      <li>Las listas que creas (título, ítems, estado de cada ítem).</li>
+      <li>Las notas que escribes (texto, recordatorios si programas uno).</li>
+      <li>Configuración de la app (preferencias de tema, moneda, etc.).</li>
+    </ul>
+    <p>
+      Esta información nunca sale de tu teléfono: no se sube a ningún servidor, no se comparte con
+      terceros, no se usa con fines publicitarios y no se vende. Si desinstalas la aplicación, esta
+      información se elimina junto con ella de forma permanente.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>3. Datos que NO recolectamos</h2>
+    <p>PanDiario no recolecta, no solicita y no transmite:</p>
+    <ul>
+      <li>Nombre, correo electrónico, teléfono ni ningún dato de identificación personal.</li>
+      <li>Ubicación geográfica.</li>
+      <li>Contactos, fotos, archivos multimedia ni cualquier otro contenido de tu dispositivo.</li>
+      <li>Audio ni grabaciones de voz — esta versión de la app no utiliza el micrófono.</li>
+      <li>Identificadores publicitarios ni datos de analítica/seguimiento de terceros.</li>
+    </ul>
+    <p>No usamos cookies, SDKs de publicidad ni servicios de analítica externos dentro de la app.</p>
+  </div>
+
+  <div class="card">
+    <h2>4. Permisos que solicita la app y por qué</h2>
+    <p>Android exige declarar cada permiso explícitamente. Estos son los que usa PanDiario y su propósito exacto:</p>
+    <table class="perm-table">
+      <tr><th>Permiso</th><th>Para qué se usa</th></tr>
+      <tr>
+        <td><code>SYSTEM_ALERT_WINDOW</code></td>
+        <td>
+          Permite mostrar la <strong>burbuja flotante</strong> de PanDiario sobre otras aplicaciones —
+          una ventana pequeña, opcional y controlada enteramente por ti, que te deja crear o revisar
+          listas y notas rápidamente sin abrir la app. Puedes desactivarla en cualquier momento desde
+          los ajustes del sistema; nada de lo que muestra esa burbuja sale de tu teléfono.
+        </td>
+      </tr>
+      <tr>
+        <td><code>FOREGROUND_SERVICE</code> /<br><code>FOREGROUND_SERVICE_SPECIAL_USE</code></td>
+        <td>Mantienen activa la burbuja flotante mientras la tienes habilitada, cumpliendo con el requisito de Android de declarar en primer plano cualquier servicio visible de forma continua.</td>
+      </tr>
+      <tr>
+        <td><code>POST_NOTIFICATIONS</code></td>
+        <td>Permite mostrarte recordatorios de notas o listas programadas que tú mismo configuras dentro de la app.</td>
+      </tr>
+      <tr>
+        <td><code>WAKE_LOCK</code></td>
+        <td>Evita que el sistema interrumpa brevemente a la burbuja flotante mientras la estás usando activamente.</td>
+      </tr>
+    </table>
+    <p class="muted">
+      PanDiario <strong>no solicita</strong> permisos de micrófono, cámara, ubicación, contactos,
+      almacenamiento de fotos ni ningún otro permiso invasivo en esta versión.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>5. Comparte con terceros</h2>
+    <p>
+      PanDiario no comparte información con terceros porque no recolecta información que compartir.
+      No integramos redes publicitarias, analítica de terceros, ni servicios de nube de ningún tipo.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>6. Seguridad de tus datos</h2>
+    <p>
+      Al vivir exclusivamente en el almacenamiento privado de la aplicación en tu dispositivo,
+      tus datos están protegidos por el sistema de aislamiento de aplicaciones de Android: ninguna
+      otra app instalada en tu teléfono puede leerlos directamente. Te recomendamos proteger tu
+      dispositivo con bloqueo de pantalla como medida adicional.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>7. Menores de edad</h2>
+    <p>
+      PanDiario no está dirigida específicamente a menores de 13 años y no recolecta a sabiendas
+      información de menores, dado que no recolecta información personal de ningún usuario.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>8. Cambios a esta política</h2>
+    <p>
+      Si en el futuro se agregan funciones que impliquen procesar datos de forma distinta, esta
+      política se actualizará y la fecha de "Última actualización" en la parte superior cambiará.
+      Te recomendamos revisarla periódicamente.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>9. Contacto</h2>
+    <p>
+      Si tienes preguntas sobre esta política de privacidad o sobre el manejo de datos en PanDiario,
+      puedes escribirnos a:
+    </p>
+    <p><strong><a href="mailto:panconmiel37@gmail.com">panconmiel37@gmail.com</a></strong></p>
+  </div>
+</main>
+
+<footer>
+  PanDiario — com.panconmiel.pandiario
+</footer>
+
+</body>
+</html>
